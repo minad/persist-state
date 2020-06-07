@@ -68,6 +68,7 @@ module Data.PersistState (
     , putBE
 ) where
 
+import GHC.IO
 import GHC.Prim
 import GHC.Int
 import GHC.Word
@@ -130,10 +131,6 @@ putHE = putLE
 #  error Big endian is unsupported currently
 #endif
 
-peek8 :: Addr# -> Word#
-peek8 p = indexWord8OffAddr# p 0#
-{-# INLINE peek8 #-}
-
 castLE16, castLE32, castLE64, castBE16, castBE32, castBE64 :: Word# -> Word#
 castLE16 x = x
 castLE32 x = x
@@ -148,32 +145,15 @@ castBE64 x = byteSwap64# x
 {-# INLINE castBE32 #-}
 {-# INLINE castBE64 #-}
 
--- TODO remove
-castLE16' :: Word16 -> Word16
-castLE32' :: Word32 -> Word32
-castLE64' :: Word64 -> Word64
-castBE16' :: Word16 -> Word16
-castBE32' :: Word32 -> Word32
-castBE64' :: Word64 -> Word64
-castLE16' = id
-castLE32' = id
-castLE64' = id
-castBE16' = byteSwap16
-castBE32' = byteSwap32
-castBE64' = byteSwap64
-
-poke16LE :: Addr# -> Word16 -> IO ()
-poke32LE :: Addr# -> Word32 -> IO ()
-poke64LE :: Addr# -> Word64 -> IO ()
-poke16BE :: Addr# -> Word16 -> IO ()
-poke32BE :: Addr# -> Word32 -> IO ()
-poke64BE :: Addr# -> Word64 -> IO ()
-poke16LE p = poke (Ptr p) . castLE16'
-poke32LE p = poke (Ptr p) . castLE32'
-poke64LE p = poke (Ptr p) . castLE64'
-poke16BE p = poke (Ptr p) . castBE16'
-poke32BE p = poke (Ptr p) . castBE32'
-poke64BE p = poke (Ptr p) . castBE64'
+poke8, poke16LE, poke32LE, poke64LE,
+  poke16BE, poke32BE, poke64BE :: Addr# -> Word# -> State# RealWorld -> State# RealWorld
+poke8 p = writeWord8OffAddr# p 0#
+poke16LE p x = writeWord16OffAddr# p 0# (castLE16 x)
+poke32LE p x = writeWord32OffAddr# p 0# (castLE32 x)
+poke64LE p x = writeWord64OffAddr# p 0# (castLE64 x)
+poke16BE p x = writeWord16OffAddr# p 0# (castBE16 x)
+poke32BE p x = writeWord32OffAddr# p 0# (castBE32 x)
+poke64BE p x = writeWord64OffAddr# p 0# (castBE64 x)
 {-# INLINE poke16LE #-}
 {-# INLINE poke32LE #-}
 {-# INLINE poke64LE #-}
@@ -181,13 +161,15 @@ poke64BE p = poke (Ptr p) . castBE64'
 {-# INLINE poke32BE #-}
 {-# INLINE poke64BE #-}
 
-peek16LE, peek32LE, peek16BE, peek32BE, peek64LE, peek64BE :: Addr# -> Word#
+peek8, peek16LE, peek32LE, peek16BE, peek32BE, peek64LE, peek64BE :: Addr# -> Word#
+peek8 p = indexWord8OffAddr# p 0#
 peek16LE p = castLE16 (indexWord16OffAddr# p 0#)
 peek32LE p = castLE32 (indexWord32OffAddr# p 0#)
 peek64LE p = castLE64 (indexWord64OffAddr# p 0#)
 peek16BE p = castBE16 (indexWord16OffAddr# p 0#)
 peek32BE p = castBE32 (indexWord32OffAddr# p 0#)
 peek64BE p = castBE64 (indexWord64OffAddr# p 0#)
+{-# INLINE peek8 #-}
 {-# INLINE peek16LE #-}
 {-# INLINE peek32LE #-}
 {-# INLINE peek64LE #-}
@@ -238,46 +220,39 @@ getBE :: Persist s (BigEndian a) => Get s a
 getBE = unBE <$!> get
 {-# INLINE getBE #-}
 
-unsafePutByte :: Integral a => a -> Put s ()
-unsafePutByte x = Put $ \_ p s -> fixup $ do
-  poke @Word8 (Ptr p) $ fromIntegral x
-  pure $! Tup (p `plusAddr#` 1#) s ()
-{-# INLINE unsafePutByte #-}
+unsafePut8 :: Integral a => a -> Put s ()
+unsafePut8 x | (W8# x') <- fromIntegral x = Put $ \_ p s w ->
+                 (# poke8 p x' w, p `plusAddr#` 1#, s, () #)
+{-# INLINE unsafePut8 #-}
 
 unsafePut16LE :: Integral a => a -> Put s ()
-unsafePut16LE x = Put $ \_ p s -> fixup $ do
-  poke16LE p $ fromIntegral x
-  pure $! Tup (p `plusAddr#` 2#) s ()
+unsafePut16LE x | (W16# x') <- fromIntegral x = Put $ \_ p s w ->
+                 (# poke16LE p x' w, p `plusAddr#` 2#, s, () #)
 {-# INLINE unsafePut16LE #-}
 
 unsafePut32LE :: Integral a => a -> Put s ()
-unsafePut32LE x = Put $ \_ p s -> fixup $ do
-  poke32LE p $ fromIntegral x
-  pure $! Tup (p `plusAddr#` 4#) s ()
+unsafePut32LE x | (W32# x') <- fromIntegral x = Put $ \_ p s w ->
+                 (# poke32LE p x' w, p `plusAddr#` 4#, s, () #)
 {-# INLINE unsafePut32LE #-}
 
 unsafePut64LE :: Integral a => a -> Put s ()
-unsafePut64LE x = Put $ \_ p s -> fixup $ do
-  poke64LE p $ fromIntegral x
-  pure $! Tup (p `plusAddr#` 8#) s ()
+unsafePut64LE x | (W64# x') <- fromIntegral x = Put $ \_ p s w ->
+                 (# poke64LE p x' w, p `plusAddr#` 8#, s, () #)
 {-# INLINE unsafePut64LE #-}
 
 unsafePut16BE :: Integral a => a -> Put s ()
-unsafePut16BE x = Put $ \_ p s -> fixup $ do
-  poke16BE p $ fromIntegral x
-  pure $! Tup (p `plusAddr#` 2#) s ()
+unsafePut16BE x | (W16# x') <- fromIntegral x = Put $ \_ p s w ->
+                 (# poke16BE p x' w, p `plusAddr#` 2#, s, () #)
 {-# INLINE unsafePut16BE #-}
 
 unsafePut32BE :: Integral a => a -> Put s ()
-unsafePut32BE x = Put $ \_ p s -> fixup $ do
-  poke32BE p $ fromIntegral x
-  pure $! Tup (p `plusAddr#` 4#) s ()
+unsafePut32BE x | (W32# x') <- fromIntegral x = Put $ \_ p s w ->
+                 (# poke32BE p x' w, p `plusAddr#` 4#, s, () #)
 {-# INLINE unsafePut32BE #-}
 
 unsafePut64BE :: Integral a => a -> Put s ()
-unsafePut64BE x = Put $ \_ p s -> fixup $ do
-  poke64BE p $ fromIntegral x
-  pure $! Tup (p `plusAddr#` 8#) s ()
+unsafePut64BE x | (W64# x') <- fromIntegral x = Put $ \_ p s w ->
+                 (# poke64BE p x' w, p `plusAddr#` 8#, s, () #)
 {-# INLINE unsafePut64BE #-}
 
 unsafeGet8 :: Num a => Get s a
@@ -325,8 +300,13 @@ reinterpretCastPut :: (Storable a, Storable b) => a -> Put s b
 reinterpretCastPut x = Put $ \e p s -> fixup $ Tup p s <$!> reinterpretCast (Ptr (peReinterpretCast e)) x
 {-# INLINE reinterpretCastPut #-}
 
+ -- TODO remove
+fixup' :: IO (Tup a b) -> (# Addr#, a, b #)
+fixup' x = case unsafePerformIO x of
+  Tup a b c -> (# a, b, c #)
+
 reinterpretCastGet :: (Storable a, Storable b) => a -> Get s b
-reinterpretCastGet x = Get $ \e p s -> fixup $ Tup p s <$!> reinterpretCast (Ptr (geReinterpretCast e)) x
+reinterpretCastGet x = Get $ \e p s -> fixup' $ Tup p s <$!> reinterpretCast (Ptr (geReinterpretCast e)) x
 {-# INLINE reinterpretCastGet #-}
 
 -- The () type need never be written to disk: values of singleton type
@@ -340,7 +320,7 @@ instance Persist s () where
 instance Persist s Word8 where
   put x = do
     grow 1
-    unsafePutByte x
+    unsafePut8 x
   {-# INLINE put #-}
 
   get = do

@@ -50,6 +50,7 @@ module Data.PersistState.Internal (
 
 import GHC.Prim
 import GHC.Ptr
+import GHC.IO
 import GHC.Int
 import Control.Exception
 import Control.Monad
@@ -59,7 +60,6 @@ import Data.IORef
 import Data.List.NonEmpty (NonEmpty(..))
 import Data.Word
 import Foreign (ForeignPtr, withForeignPtr, mallocBytes, free, allocaBytes)
-import System.IO.Unsafe
 import qualified Control.Monad.Fail as Fail
 import qualified Data.ByteString.Internal as B
 
@@ -71,16 +71,14 @@ type family GetState s
 data Tup b c = Tup Addr# !b !c
 
 -- TODO remove
-fixup :: IO (Tup a b) -> (# Addr#, a, b #)
-fixup x = case unsafePerformIO x of
-  Tup a b c -> (# a, b, c #)
+fixup :: IO (Tup a b) -> State# RealWorld -> (# State# RealWorld, Addr#, a, b #)
+fixup (IO m) w = case m w of
+  (# w', Tup a b c #) -> (# w', a, b, c #)
 
 data GetEnv s = GetEnv
   { geBuf   :: !(ForeignPtr Word8)
   , geBegin :: Addr#
   , geEnd   :: Addr#
-  -- TODO remove, use castDoubleToWord64
-  -- but I think these casting functions are buggy
   , geReinterpretCast :: Addr#
   }
 
@@ -146,7 +144,7 @@ stateGet = Get $ \_ p s -> (# p, s, s #)
 {-# INLINE stateGet #-}
 
 statePut :: Put s (PutState s)
-statePut = Put $ \_ p s -> (# p, s, s #)
+statePut = Put $ \_ p s w -> (# w, p, s, s #)
 {-# INLINE statePut #-}
 
 setStateGet :: GetState s -> Get s ()
@@ -154,7 +152,7 @@ setStateGet s = Get $ \_ p _ -> (# p, s, () #)
 {-# INLINE setStateGet #-}
 
 setStatePut :: PutState s -> Put s ()
-setStatePut s = Put $ \_ p _ -> (# p, s, () #)
+setStatePut s = Put $ \_ p _ w -> (# w, p, s, () #)
 {-# INLINE setStatePut #-}
 
 -- | Run the Get monad applies a 'get'-based parser on the input ByteString
@@ -178,26 +176,25 @@ type family PutState s
 data PutEnv s = PutEnv
   { peChks :: !(IORef (NonEmpty Chunk))
   , peEnd  :: !(IORef (Ptr Word8))
-  -- TODO remove, use castDoubleToWord64
-  -- but I think these casting functions are buggy
-  , peReinterpretCast  :: Addr#
+  , peReinterpretCast :: Addr#
   }
 
 newtype Put s a = Put
-  { unPut :: PutEnv s -> Addr# -> PutState s -> (# Addr#, PutState s,  a #) }
+  { unPut :: PutEnv s -> Addr# -> PutState s
+          -> State# RealWorld -> (# State# RealWorld, Addr#, PutState s, a #) }
 
 instance Functor (Put s) where
-  fmap f m = Put $ \e p s -> case unPut m e p s of
-    (# p', s', x #) -> (# p', s', f x #)
+  fmap f m = Put $ \e p s w -> case unPut m e p s w of
+    (# w', p', s', x #) -> (# w', p', s', f x #)
   {-# INLINE fmap #-}
 
 instance Applicative (Put s) where
-  pure a = Put $ \_ p s -> (# p, s, a #)
+  pure a = Put $ \_ p s w -> (# w, p, s, a #)
   {-# INLINE pure #-}
 
-  f <*> a = Put $ \e p s -> case unPut f e p s of
-    (# p', s', f' #) -> case unPut a e p' s' of
-      (# p'', s'', a' #) -> (# p'', s'', f' a' #)
+  f <*> a = Put $ \e p s w -> case unPut f e p s w of
+    (# w', p', s', f' #) -> case unPut a e p' s' w' of
+      (# w'', p'', s'', a' #) -> (# w'', p'', s'', f' a' #)
   {-# INLINE (<*>) #-}
 
   m1 *> m2 = do
@@ -206,8 +203,8 @@ instance Applicative (Put s) where
   {-# INLINE (*>) #-}
 
 instance Monad (Put s) where
-  m >>= f = Put $ \e p s -> case unPut m e p s of
-    (# p', s', x #) -> unPut (f x) e p' s'
+  m >>= f = Put $ \e p s w -> case unPut m e p s w of
+    (# w', p', s', x #) -> unPut (f x) e p' s' w'
   {-# INLINE (>>=) #-}
 
 minChunkSize :: Int
@@ -261,8 +258,8 @@ evalPutIO p ps = do
   chks <- newIORef (k:|[])
   end <- newIORef (Ptr (chkEnd k))
   Tup p' _ps' r <- allocaBytes 8 $ \(Ptr t) ->
-    pure $ case unPut p PutEnv { peChks = chks, peEnd = end, peReinterpretCast = t } (chkBegin k) ps of
-             (# p', ps', r #) -> Tup p' ps' r
+    IO $ \w -> case unPut p PutEnv { peChks = chks, peEnd = end, peReinterpretCast = t } (chkBegin k) ps w of
+                 (# w', p', ps', r #) -> (# w', Tup p' ps' r #)
   cs <- readIORef chks
   s <- case cs of
     (x:|xs) -> catChunks $ x { chkEnd = p' } : xs
