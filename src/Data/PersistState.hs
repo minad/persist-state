@@ -70,6 +70,7 @@ module Data.PersistState (
 
 import GHC.Prim
 import GHC.Int
+import GHC.Word
 import GHC.Ptr
 import Control.Monad
 import Data.Bits
@@ -119,205 +120,82 @@ getHE = getLE
 putHE = putLE
 #endif
 
-poke16LE :: Addr# -> Word16 -> IO ()
-poke32LE :: Addr# -> Word32 -> IO ()
-poke64LE :: Addr# -> Word64 -> IO ()
-{-# INLINE poke16LE #-}
-{-# INLINE poke32LE #-}
-{-# INLINE poke64LE #-}
+#ifndef UNALIGNED_MEMORY
+#  error Aligned memory access is not implemented currently
+#endif
 
-poke16BE :: Addr# -> Word16 -> IO ()
-poke32BE :: Addr# -> Word32 -> IO ()
-poke64BE :: Addr# -> Word64 -> IO ()
-{-# INLINE poke16BE #-}
-{-# INLINE poke32BE #-}
-{-# INLINE poke64BE #-}
+#if WORD_SIZE_IN_BITS < 32
+#  error 32 bit architectures are unsupported currently
+#endif
 
-peek8 :: Addr# -> IO Word8
+#ifdef WORDS_BIGENDIAN
+#  error Big endian is unsupported currently
+#endif
+
+peek8 :: Addr# -> Word#
+peek8 p = indexWord8OffAddr# p 0#
 {-# INLINE peek8 #-}
 
-peek16LE :: Addr# -> IO Word16
-peek32LE :: Addr# -> IO Word32
-peek64LE :: Addr# -> IO Word64
-{-# INLINE peek16LE #-}
-{-# INLINE peek32LE #-}
-{-# INLINE peek64LE #-}
-
-peek16BE :: Addr# -> IO Word16
-peek32BE :: Addr# -> IO Word32
-peek64BE :: Addr# -> IO Word64
-{-# INLINE peek16BE #-}
-{-# INLINE peek32BE #-}
-{-# INLINE peek64BE #-}
-
-#ifndef UNALIGNED_MEMORY
-pokeByte :: Integral a => Addr# -> a -> IO ()
-pokeByte p x = poke @Word8 (Ptr p) (fromIntegral x)
-{-# INLINE pokeByte #-}
-
-peekByte :: Integral a => Addr# -> IO a
-peekByte p = do
-  !b <- peek @Word8 (Ptr p)
-  return $! fromIntegral b
-{-# INLINE peekByte #-}
-
-poke16LE p y = do
-  pokeByte p $ y
-  pokeByte (p `plusAddr#` 1#) $ y `unsafeShiftR` 8
-
-poke16BE p y = do
-  pokeByte p $ y `unsafeShiftR` 8
-  pokeByte (p `plusAddr#` 1#) $ y
-
-poke32LE p y = do
-  pokeByte p $ y
-  pokeByte (p `plusAddr#` 1#) $ y `unsafeShiftR` 8
-  pokeByte (p `plusAddr#` 2#) $ y `unsafeShiftR` 16
-  pokeByte (p `plusAddr#` 3#) $ y `unsafeShiftR` 24
-
-poke32BE p y = do
-  pokeByte p $ y `unsafeShiftR` 24
-  pokeByte (p `plusAddr#` 1#) $ y `unsafeShiftR` 16
-  pokeByte (p `plusAddr#` 2#) $ y `unsafeShiftR` 8
-  pokeByte (p `plusAddr#` 3#) $ y
-
-poke64LE p y = do
-  pokeByte p $ y
-  pokeByte (p `plusAddr#` 1#) $ y `unsafeShiftR` 8
-  pokeByte (p `plusAddr#` 2#) $ y `unsafeShiftR` 16
-  pokeByte (p `plusAddr#` 3#) $ y `unsafeShiftR` 24
-  pokeByte (p `plusAddr#` 4#) $ y `unsafeShiftR` 32
-  pokeByte (p `plusAddr#` 5#) $ y `unsafeShiftR` 40
-  pokeByte (p `plusAddr#` 6#) $ y `unsafeShiftR` 48
-  pokeByte (p `plusAddr#` 7#) $ y `unsafeShiftR` 56
-
-poke64BE p y = do
-  pokeByte p $ y `unsafeShiftR` 56
-  pokeByte (p `plusAddr#` 1#) $ y `unsafeShiftR` 48
-  pokeByte (p `plusAddr#` 2#) $ y `unsafeShiftR` 40
-  pokeByte (p `plusAddr#` 3#) $ y `unsafeShiftR` 32
-  pokeByte (p `plusAddr#` 4#) $ y `unsafeShiftR` 24
-  pokeByte (p `plusAddr#` 5#) $ y `unsafeShiftR` 16
-  pokeByte (p `plusAddr#` 6#) $ y `unsafeShiftR` 8
-  pokeByte (p `plusAddr#` 7#) $ y
-
-peek16LE p = do
-  !x0 <- peekByte @Word16 p
-  !x1 <- peekByte @Word16 (p `plusAddr#` 1#)
-  return $ x1 `unsafeShiftL` 8
-    .|. x0
-
-peek16BE p = do
-  !x0 <- peekByte @Word16 p
-  !x1 <- peekByte @Word16 (p `plusAddr#` 1#)
-  return $ x0 `unsafeShiftL` 8
-    .|. x1
-
-peek32LE p = do
-  !x0 <- peekByte @Word32 p
-  !x1 <- peekByte @Word32 (p `plusAddr#` 1#)
-  !x2 <- peekByte @Word32 (p `plusAddr#` 2#)
-  !x3 <- peekByte @Word32 (p `plusAddr#` 3#)
-  return $ x3 `unsafeShiftL` 24
-    .|. x2 `unsafeShiftL` 16
-    .|. x1 `unsafeShiftL` 8
-    .|. x0
-
-peek32BE p = do
-  !x0 <- peekByte @Word32 p
-  !x1 <- peekByte @Word32 (p `plusAddr#` 1#)
-  !x2 <- peekByte @Word32 (p `plusAddr#` 2#)
-  !x3 <- peekByte @Word32 (p `plusAddr#` 3#)
-  return $ x0 `unsafeShiftL` 24
-    .|. x1 `unsafeShiftL` 16
-    .|. x2 `unsafeShiftL` 8
-    .|. x3
-
-peek64LE p = do
-  !x0 <- peekByte @Word64 p
-  !x1 <- peekByte @Word64 (p `plusAddr#` 1#)
-  !x2 <- peekByte @Word64 (p `plusAddr#` 2#)
-  !x3 <- peekByte @Word64 (p `plusAddr#` 3#)
-  !x4 <- peekByte @Word64 (p `plusAddr#` 4#)
-  !x5 <- peekByte @Word64 (p `plusAddr#` 5#)
-  !x6 <- peekByte @Word64 (p `plusAddr#` 6#)
-  !x7 <- peekByte @Word64 (p `plusAddr#` 7#)
-  return $ x7 `unsafeShiftL` 56
-    .|. x6 `unsafeShiftL` 48
-    .|. x5 `unsafeShiftL` 40
-    .|. x4 `unsafeShiftL` 32
-    .|. x3 `unsafeShiftL` 24
-    .|. x2 `unsafeShiftL` 16
-    .|. x1 `unsafeShiftL` 8
-    .|. x0
-
-peek64BE p = do
-  !x0 <- peekByte @Word64 p
-  !x1 <- peekByte @Word64 (p `plusAddr#` 1#)
-  !x2 <- peekByte @Word64 (p `plusAddr#` 2#)
-  !x3 <- peekByte @Word64 (p `plusAddr#` 3#)
-  !x4 <- peekByte @Word64 (p `plusAddr#` 4#)
-  !x5 <- peekByte @Word64 (p `plusAddr#` 5#)
-  !x6 <- peekByte @Word64 (p `plusAddr#` 6#)
-  !x7 <- peekByte @Word64 (p `plusAddr#` 7#)
-  return $ x0 `unsafeShiftL` 56
-    .|. x1 `unsafeShiftL` 48
-    .|. x2 `unsafeShiftL` 40
-    .|. x3 `unsafeShiftL` 32
-    .|. x4 `unsafeShiftL` 24
-    .|. x5 `unsafeShiftL` 16
-    .|. x6 `unsafeShiftL` 8
-    .|. x7
-
-#else
-castLE16 :: Word16 -> Word16
-castLE32 :: Word32 -> Word32
-castLE64 :: Word64 -> Word64
+castLE16, castLE32, castLE64, castBE16, castBE32, castBE64 :: Word# -> Word#
+castLE16 x = x
+castLE32 x = x
+castLE64 x = x
+castBE16 x = narrow16Word# (byteSwap16# x)
+castBE32 x = narrow32Word# (byteSwap32# x)
+castBE64 x = byteSwap64# x
 {-# INLINE castLE16 #-}
 {-# INLINE castLE32 #-}
 {-# INLINE castLE64 #-}
-
-castBE16 :: Word16 -> Word16
-castBE32 :: Word32 -> Word32
-castBE64 :: Word64 -> Word64
 {-# INLINE castBE16 #-}
 {-# INLINE castBE32 #-}
 {-# INLINE castBE64 #-}
 
-#ifdef WORDS_BIGENDIAN
-castBE16 = id
-castBE32 = id
-castBE64 = id
-castLE16 = byteSwap16
-castLE32 = byteSwap32
-castLE64 = byteSwap64
-#else
-castLE16 = id
-castLE32 = id
-castLE64 = id
-castBE16 = byteSwap16
-castBE32 = byteSwap32
-castBE64 = byteSwap64
-#endif
+-- TODO remove
+castLE16' :: Word16 -> Word16
+castLE32' :: Word32 -> Word32
+castLE64' :: Word64 -> Word64
+castBE16' :: Word16 -> Word16
+castBE32' :: Word32 -> Word32
+castBE64' :: Word64 -> Word64
+castLE16' = id
+castLE32' = id
+castLE64' = id
+castBE16' = byteSwap16
+castBE32' = byteSwap32
+castBE64' = byteSwap64
 
-poke16LE p = poke (Ptr p) . castLE16
-poke32LE p = poke (Ptr p) . castLE32
-poke64LE p = poke (Ptr p) . castLE64
+poke16LE :: Addr# -> Word16 -> IO ()
+poke32LE :: Addr# -> Word32 -> IO ()
+poke64LE :: Addr# -> Word64 -> IO ()
+poke16BE :: Addr# -> Word16 -> IO ()
+poke32BE :: Addr# -> Word32 -> IO ()
+poke64BE :: Addr# -> Word64 -> IO ()
+poke16LE p = poke (Ptr p) . castLE16'
+poke32LE p = poke (Ptr p) . castLE32'
+poke64LE p = poke (Ptr p) . castLE64'
+poke16BE p = poke (Ptr p) . castBE16'
+poke32BE p = poke (Ptr p) . castBE32'
+poke64BE p = poke (Ptr p) . castBE64'
+{-# INLINE poke16LE #-}
+{-# INLINE poke32LE #-}
+{-# INLINE poke64LE #-}
+{-# INLINE poke16BE #-}
+{-# INLINE poke32BE #-}
+{-# INLINE poke64BE #-}
 
-poke16BE p = poke (Ptr p) . castBE16
-poke32BE p = poke (Ptr p) . castBE32
-poke64BE p = poke (Ptr p) . castBE64
-
-peek8 p = peek (Ptr p)
-
-peek16LE p = castLE16 <$!> peek (Ptr p)
-peek32LE p = castLE32 <$!> peek (Ptr p)
-peek64LE p = castLE64 <$!> peek (Ptr p)
-
-peek16BE p = castBE16 <$!> peek (Ptr p)
-peek32BE p = castBE32 <$!> peek (Ptr p)
-peek64BE p = castBE64 <$!> peek (Ptr p)
-#endif
+peek16LE, peek32LE, peek16BE, peek32BE, peek64LE, peek64BE :: Addr# -> Word#
+peek16LE p = castLE16 (indexWord16OffAddr# p 0#)
+peek32LE p = castLE32 (indexWord32OffAddr# p 0#)
+peek64LE p = castLE64 (indexWord64OffAddr# p 0#)
+peek16BE p = castBE16 (indexWord16OffAddr# p 0#)
+peek32BE p = castBE32 (indexWord32OffAddr# p 0#)
+peek64BE p = castBE64 (indexWord64OffAddr# p 0#)
+{-# INLINE peek16LE #-}
+{-# INLINE peek32LE #-}
+{-# INLINE peek64LE #-}
+{-# INLINE peek16BE #-}
+{-# INLINE peek32BE #-}
+{-# INLINE peek64BE #-}
 
 newtype BigEndian a = BigEndian { unBE :: a }
   deriving (Show, Eq, Ord, Functor, Foldable, Traversable, Generic)
@@ -405,45 +283,38 @@ unsafePut64BE x = Put $ \_ p s -> fixup $ do
 {-# INLINE unsafePut64BE #-}
 
 unsafeGet8 :: Num a => Get s a
-unsafeGet8 = Get $ \_ p s -> fixup $ do
-  x <- peek8 p
-  pure $! Tup (p `plusAddr#` 1#) s (fromIntegral x)
+unsafeGet8 = Get $ \_ p s -> case peek8 p of
+  x -> (# p `plusAddr#` 1#, s, fromIntegral (W8# x) #)
 {-# INLINE unsafeGet8 #-}
 
 unsafeGet16LE :: Num a => Get s a
-unsafeGet16LE = Get $ \_ p s -> fixup $ do
-  x <- peek16LE p
-  pure $! Tup (p `plusAddr#` 2#) s (fromIntegral x)
+unsafeGet16LE = Get $ \_ p s -> case peek16LE p of
+  x -> (# p `plusAddr#` 2#, s, fromIntegral (W16# x) #)
 {-# INLINE unsafeGet16LE #-}
 
 unsafeGet32LE :: Num a => Get s a
-unsafeGet32LE = Get $ \_ p s -> fixup $ do
-  x <- peek32LE p
-  pure $! Tup (p `plusAddr#` 4#) s (fromIntegral x)
+unsafeGet32LE = Get $ \_ p s -> case peek32LE p of
+  x -> (# p `plusAddr#` 4#, s, fromIntegral (W32# x) #)
 {-# INLINE unsafeGet32LE #-}
 
 unsafeGet64LE :: Num a => Get s a
-unsafeGet64LE = Get $ \_ p s -> fixup $ do
-  x <- peek64LE p
-  pure $! Tup (p `plusAddr#` 8#) s (fromIntegral x)
+unsafeGet64LE = Get $ \_ p s -> case peek64LE p of
+  x -> (# p `plusAddr#` 8#, s, fromIntegral (W64# x) #)
 {-# INLINE unsafeGet64LE #-}
 
 unsafeGet16BE :: Num a => Get s a
-unsafeGet16BE = Get $ \_ p s -> fixup $ do
-  x <- peek16BE p
-  pure $! Tup (p `plusAddr#` 2#) s (fromIntegral x)
+unsafeGet16BE = Get $ \_ p s -> case peek16BE p of
+  x -> (# p `plusAddr#` 2#, s, fromIntegral (W16# x) #)
 {-# INLINE unsafeGet16BE #-}
 
 unsafeGet32BE :: Num a => Get s a
-unsafeGet32BE = Get $ \_ p s -> fixup $ do
-  x <- peek32BE p
-  pure $! Tup (p `plusAddr#` 4#) s (fromIntegral x)
+unsafeGet32BE = Get $ \_ p s -> case peek32BE p of
+  x -> (# p `plusAddr#` 4#, s, fromIntegral (W32# x) #)
 {-# INLINE unsafeGet32BE #-}
 
 unsafeGet64BE :: Num a => Get s a
-unsafeGet64BE = Get $ \_ p s -> fixup $ do
-  x <- peek64BE p
-  pure $! Tup (p `plusAddr#` 8#) s (fromIntegral x)
+unsafeGet64BE = Get $ \_ p s -> case peek64BE p of
+  x -> (# p `plusAddr#` 8#, s, fromIntegral (W64# x) #)
 {-# INLINE unsafeGet64BE #-}
 
 reinterpretCast :: (Storable a, Storable b) => Ptr p -> a -> IO b
