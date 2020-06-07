@@ -75,7 +75,6 @@ import GHC.Ptr
 import Control.Monad
 import Data.Bits
 import Data.ByteString (ByteString)
-import Data.Int
 import Data.IntMap (IntMap)
 import Data.IntSet (IntSet)
 import Data.List (unfoldr)
@@ -86,8 +85,7 @@ import Data.Proxy
 import Data.Sequence (Seq)
 import Data.Set (Set)
 import Data.Text (Text)
-import Data.Word
-import Foreign (Ptr, Storable(..), plusPtr, minusPtr, castPtr, withForeignPtr)
+import Foreign (Storable(..), withForeignPtr)
 import GHC.Base (unsafeChr, ord)
 import GHC.Exts (IsList(..))
 import GHC.Generics
@@ -705,12 +703,12 @@ instance Persist s L.ByteString where
 
 instance Persist s S.ShortByteString where
   put b = do
-    let n = S.length b
+    let !n@(I# n') = S.length b
     put n
     grow n
     Put $ \_ p s -> fixup $ do
       S.copyToPtr b 0 (Ptr p) n
-      pure $! Tup (ptrToAddr (Ptr p `plusPtr` n)) s ()
+      pure $! Tup (p `plusAddr#` n') s ()
 
   get = S.toShort <$!> get
 
@@ -892,11 +890,11 @@ runPut s = snd . evalPut s
 {-# INLINE runPut #-}
 
 putByteString :: ByteString -> Put s ()
-putByteString (B.PS b o n) = do
+putByteString !(B.PS b o n@(I# n')) = do
   grow n
   Put $ \_ p s -> fixup $ do
     withForeignPtr b $ \q -> B.memcpy (Ptr p) (q `plusPtr` o) n
-    pure $! Tup (ptrToAddr (Ptr p `plusPtr` n)) s ()
+    pure $! Tup (p `plusAddr#` n') s ()
 {-# INLINE putByteString #-}
 
 modifyStateGet :: (GetState s -> GetState s) -> Get s ()

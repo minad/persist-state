@@ -20,10 +20,10 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UnboxedTuples #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE BangPatterns #-}
 
 module Data.PersistState.Internal (
-    ptrToAddr
-    , fixup
+    fixup
     , Tup(..)
 
     -- * The Get type
@@ -58,8 +58,7 @@ import Data.Foldable (foldlM)
 import Data.IORef
 import Data.List.NonEmpty (NonEmpty(..))
 import Data.Word
-import Foreign (ForeignPtr, Ptr, plusPtr, minusPtr,
-                withForeignPtr, mallocBytes, free, allocaBytes)
+import Foreign (ForeignPtr, withForeignPtr, mallocBytes, free, allocaBytes)
 import System.IO.Unsafe
 import qualified Control.Monad.Fail as Fail
 import qualified Data.ByteString.Internal as B
@@ -76,15 +75,13 @@ fixup :: IO (Tup a b) -> (# Addr#, a, b #)
 fixup x = case unsafePerformIO x of
   Tup a b c -> (# a, b, c #)
 
--- TODO remove
-ptrToAddr :: Ptr a -> Addr#
-ptrToAddr (Ptr a) = a
-
 data GetEnv s = GetEnv
   { geBuf   :: !(ForeignPtr Word8)
   , geBegin :: Addr#
   , geEnd   :: Addr#
-  , geReinterpretCast   :: Addr# -- TODO remove
+  -- TODO remove, use castDoubleToWord64
+  -- but I think these casting functions are buggy
+  , geReinterpretCast :: Addr#
   }
 
 newtype Get s a = Get
@@ -160,18 +157,15 @@ setStatePut :: PutState s -> Put s ()
 setStatePut s = Put $ \_ p _ -> (# p, s, () #)
 {-# INLINE setStatePut #-}
 
-runGetIO :: Get s a -> GetState s -> ByteString -> IO a
-runGetIO m g s = run
-  where run = withForeignPtr buf $ \p -> allocaBytes 8 $ \t -> do
-          let env = GetEnv { geBuf = buf, geBegin = ptrToAddr p, geEnd = ptrToAddr (p `plusPtr` (pos + len)), geReinterpretCast = ptrToAddr t }
-          case unGet m env (ptrToAddr (p `plusPtr` pos)) g of
-            (# _, _, r #) -> pure r
-        (B.PS buf pos len) = s
-
 -- | Run the Get monad applies a 'get'-based parser on the input ByteString
 runGet :: Get s a -> GetState s -> ByteString -> Either String a
-runGet m g s = unsafePerformIO $ catch (Right <$!> (runGetIO m g s)) handler
+runGet m g s = unsafePerformIO $ catch (Right <$!> run) handler
   where handler (x :: GetException) = pure $ Left $ displayException x
+        run = withForeignPtr buf $ \(Ptr p) -> allocaBytes 8 $ \(Ptr t) -> do
+          let env = GetEnv { geBuf = buf, geBegin = p, geEnd = p `plusAddr#` (pos +# len), geReinterpretCast = t }
+          case unGet m env (p `plusAddr#` pos) g of
+            (# _, _, r #) -> pure r
+        !(B.PS buf (I# pos) (I# len)) = s
 {-# NOINLINE runGet #-}
 
 data Chunk = Chunk
@@ -184,7 +178,9 @@ type family PutState s
 data PutEnv s = PutEnv
   { peChks :: !(IORef (NonEmpty Chunk))
   , peEnd  :: !(IORef (Ptr Word8))
-  , peReinterpretCast  :: Addr# -- TODO remove
+  -- TODO remove, use castDoubleToWord64
+  -- but I think these casting functions are buggy
+  , peReinterpretCast  :: Addr#
   }
 
 newtype Put s a = Put
@@ -220,9 +216,9 @@ minChunkSize = 0x10000
 
 newChunk :: Int -> IO Chunk
 newChunk size = do
-  let n = max size minChunkSize
-  p <- mallocBytes n
-  pure $! Chunk (ptrToAddr p) (ptrToAddr (p `plusPtr` n))
+  let !n@(I# n') = max size minChunkSize
+  Ptr p <- mallocBytes n
+  pure $! Chunk p (p `plusAddr#` n')
 {-# INLINE newChunk #-}
 
 -- | Ensure that @n@ bytes can be written.
@@ -264,8 +260,8 @@ evalPutIO p ps = do
   k <- newChunk 0
   chks <- newIORef (k:|[])
   end <- newIORef (Ptr (chkEnd k))
-  Tup p' _ps' r <- allocaBytes 8 $ \t ->
-    pure $ case unPut p PutEnv { peChks = chks, peEnd = end, peReinterpretCast = ptrToAddr t } (chkBegin k) ps of
+  Tup p' _ps' r <- allocaBytes 8 $ \(Ptr t) ->
+    pure $ case unPut p PutEnv { peChks = chks, peEnd = end, peReinterpretCast = t } (chkBegin k) ps of
              (# p', ps', r #) -> Tup p' ps' r
   cs <- readIORef chks
   s <- case cs of
