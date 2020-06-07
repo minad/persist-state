@@ -20,7 +20,8 @@
 {-# LANGUAGE UndecidableInstances #-}
 
 module Data.PersistState.Internal (
-      (:!:)(..)
+    Tup(..)
+
     -- * The Get type
     , Get(..)
     , GetState
@@ -60,8 +61,7 @@ import qualified Data.ByteString.Internal as B
 
 #include "MachDeps.h"
 
-data a :!: b = !a :!: !b
-infixl 2 :!:
+data Tup a b c = Tup !a !b !c
 
 type family GetState s
 
@@ -70,27 +70,26 @@ data GetEnv s = GetEnv
   , geBegin :: {-#UNPACK#-}!(Ptr Word8)
   , geEnd   :: {-#UNPACK#-}!(Ptr Word8)
   , geTmp   :: {-#UNPACK#-}!(Ptr Word8)
-  , geState :: !(IORef (GetState s))
   }
 
 newtype Get s a = Get
-  { unGet :: GetEnv s -> Ptr Word8 -> IO ((Ptr Word8) :!: a)
+  { unGet :: GetEnv s -> Ptr Word8 -> GetState s -> IO (Tup (Ptr Word8) (GetState s) a)
   }
 
 instance Functor (Get s) where
-  fmap f m = Get $ \e p -> do
-    p' :!: x <- unGet m e p
-    pure $! p' :!: f x
+  fmap f m = Get $ \e p s -> do
+    Tup p' s' x <- unGet m e p s
+    pure $! Tup p' s' (f x)
   {-# INLINE fmap #-}
 
 instance Applicative (Get s) where
-  pure a = Get $ \_ p -> pure $! p :!: a
+  pure a = Get $ \_ p s -> pure $! Tup p s a
   {-# INLINE pure #-}
 
-  f <*> a = Get $ \e p -> do
-    p' :!: f' <- unGet f e p
-    p'' :!: a' <- unGet a e p'
-    pure $! p'' :!: f' a'
+  f <*> a = Get $ \e p s -> do
+    Tup p' s' f' <- unGet f e p s
+    Tup p'' s'' a'' <- unGet a e p' s'
+    pure $! Tup p'' s'' (f' a'')
   {-# INLINE (<*>) #-}
 
   m1 *> m2 = do
@@ -99,9 +98,9 @@ instance Applicative (Get s) where
   {-# INLINE (*>) #-}
 
 instance Monad (Get s) where
-  m >>= f = Get $ \e p -> do
-    p' :!: x <- unGet m e p
-    unGet (f x) e p'
+  m >>= f = Get $ \e p s -> do
+    Tup p' s' x <- unGet m e p s
+    unGet (f x) e p' s'
   {-# INLINE (>>=) #-}
 
 #if !MIN_VERSION_base(4,11,0)
@@ -123,44 +122,35 @@ instance Fail.MonadFail (Get s) where
   {-# INLINE fail #-}
 
 offset :: Get s Int
-offset = Get $ \e p -> pure $! p :!: (p `minusPtr` (geBegin e))
+offset = Get $ \e p s -> pure $! Tup p s (p `minusPtr` (geBegin e))
 {-# INLINE offset #-}
 
 failGet :: (Int -> String -> GetException) -> String -> Get s a
 failGet ctor msg = do
   off <- offset
-  Get $ \_ _ -> throwIO (ctor off msg)
+  Get $ \_ _ _ -> throwIO (ctor off msg)
 
 stateGet :: Get s (GetState s)
-stateGet = Get $ \e p -> do
-  s <- readIORef (geState e)
-  pure $! p :!: s
+stateGet = Get $ \_ p s -> pure $! Tup p s s
 {-# INLINE stateGet #-}
 
 statePut :: Put s (PutState s)
-statePut = Put $ \e p -> do
-  s <- readIORef (peState e)
-  pure $! p :!: s
+statePut = Put $ \_ p s -> pure $! Tup p s s
 {-# INLINE statePut #-}
 
 setStateGet :: GetState s -> Get s ()
-setStateGet s = Get $ \e p -> do
-  writeIORef (geState e) s
-  pure $! p :!: ()
+setStateGet s = Get $ \_ p _ -> pure $! Tup p s ()
 {-# INLINE setStateGet #-}
 
 setStatePut :: PutState s -> Put s ()
-setStatePut s = Put $ \e p -> do
-  writeIORef (peState e) s
-  pure $! p :!: ()
+setStatePut s = Put $ \_ p _ -> pure $! Tup p s ()
 {-# INLINE setStatePut #-}
 
 runGetIO :: Get s a -> GetState s -> ByteString -> IO a
 runGetIO m g s = run
   where run = withForeignPtr buf $ \p -> allocaBytes 8 $ \t -> do
-          rg <- newIORef g
-          let env = GetEnv { geState = rg, geBuf = buf, geBegin = p, geEnd = p `plusPtr` (pos + len), geTmp = t }
-          _ :!: r <- unGet m env (p `plusPtr` pos)
+          let env = GetEnv { geBuf = buf, geBegin = p, geEnd = p `plusPtr` (pos + len), geTmp = t }
+          Tup _ _ r <- unGet m env (p `plusPtr` pos) g
           pure r
         (B.PS buf pos len) = s
 
@@ -181,26 +171,25 @@ data PutEnv s = PutEnv
   { peChks :: !(IORef (NonEmpty Chunk))
   , peEnd  :: !(IORef (Ptr Word8))
   , peTmp  :: {-#UNPACK#-}!(Ptr Word8)
-  , peState :: !(IORef (PutState s))
   }
 
 newtype Put s a = Put
-  { unPut :: PutEnv s -> Ptr Word8 -> IO ((Ptr Word8) :!: a) }
+  { unPut :: PutEnv s -> Ptr Word8 -> PutState s -> IO (Tup (Ptr Word8) (PutState s) a) }
 
 instance Functor (Put s) where
-  fmap f m = Put $ \e p -> do
-    p' :!: x <- unPut m e p
-    pure $! p' :!: f x
+  fmap f m = Put $ \e p s -> do
+    Tup p' s' x <- unPut m e p s
+    pure $! Tup p' s' (f x)
   {-# INLINE fmap #-}
 
 instance Applicative (Put s) where
-  pure a = Put $ \_ p -> pure $! p :!: a
+  pure a = Put $ \_ p s -> pure $! Tup p s a
   {-# INLINE pure #-}
 
-  f <*> a = Put $ \e p -> do
-    p' :!: f' <- unPut f e p
-    p'' :!: a' <- unPut a e p'
-    pure $! p'' :!: f' a'
+  f <*> a = Put $ \e p s -> do
+    Tup p' s' f' <- unPut f e p s
+    Tup p'' s'' a' <- unPut a e p' s'
+    pure $! Tup p'' s'' (f' a')
   {-# INLINE (<*>) #-}
 
   m1 *> m2 = do
@@ -209,9 +198,9 @@ instance Applicative (Put s) where
   {-# INLINE (*>) #-}
 
 instance Monad (Put s) where
-  m >>= f = Put $ \e p -> do
-    p' :!: x <- unPut m e p
-    unPut (f x) e p'
+  m >>= f = Put $ \e p s -> do
+    Tup p' s' x <- unPut m e p s
+    unPut (f x) e p' s'
   {-# INLINE (>>=) #-}
 
 minChunkSize :: Int
@@ -229,21 +218,21 @@ newChunk size = do
 grow :: Int -> Put s ()
 grow n
   | n < 0 = error "grow: negative length"
-  | otherwise = Put $ \e p -> do
+  | otherwise = Put $ \e p s -> do
       end <- readIORef (peEnd e)
       if end `minusPtr` p >= n then
-        pure $! p :!: ()
+        pure $! Tup p s ()
       else
-        doGrow e p n
+        doGrow e p s n
 {-# INLINE grow #-}
 
-doGrow :: PutEnv s -> Ptr Word8 -> Int -> IO ((Ptr Word8) :!: ())
-doGrow e p n = do
+doGrow :: PutEnv s -> Ptr Word8 -> PutState s -> Int -> IO (Tup (Ptr Word8) (PutState s) ())
+doGrow e p s n = do
   k <- newChunk n
   modifyIORef' (peChks e) $ \case
     (c:|cs) -> k :| c { chkEnd = p } : cs
   writeIORef (peEnd e) (chkEnd k)
-  pure $! chkBegin k :!: ()
+  pure $! Tup (chkBegin k) s ()
 {-# NOINLINE doGrow #-}
 
 chunksLength :: [Chunk] -> Int
@@ -264,9 +253,8 @@ evalPutIO p ps = do
   k <- newChunk 0
   chks <- newIORef (k:|[])
   end <- newIORef (chkEnd k)
-  rps <- newIORef ps
-  p' :!: r <- allocaBytes 8 $ \t ->
-    unPut p PutEnv { peState = rps, peChks = chks, peEnd = end, peTmp = t } (chkBegin k)
+  Tup p' _ps' r <- allocaBytes 8 $ \t ->
+    unPut p PutEnv { peChks = chks, peEnd = end, peTmp = t } (chkBegin k) ps
   cs <- readIORef chks
   s <- case cs of
     (x:|xs) -> catChunks $ x { chkEnd = p' } : xs
