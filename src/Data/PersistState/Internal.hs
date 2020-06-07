@@ -84,7 +84,7 @@ data GetEnv s = GetEnv
   { geBuf   :: !(ForeignPtr Word8)
   , geBegin :: Addr#
   , geEnd   :: Addr#
-  , geTmp   :: Addr# -- TODO remove
+  , geReinterpretCast   :: Addr# -- TODO remove
   }
 
 newtype Get s a = Get
@@ -163,7 +163,7 @@ setStatePut s = Put $ \_ p _ -> (# p, s, () #)
 runGetIO :: Get s a -> GetState s -> ByteString -> IO a
 runGetIO m g s = run
   where run = withForeignPtr buf $ \p -> allocaBytes 8 $ \t -> do
-          let env = GetEnv { geBuf = buf, geBegin = ptrToAddr p, geEnd = ptrToAddr (p `plusPtr` (pos + len)), geTmp = ptrToAddr t }
+          let env = GetEnv { geBuf = buf, geBegin = ptrToAddr p, geEnd = ptrToAddr (p `plusPtr` (pos + len)), geReinterpretCast = ptrToAddr t }
           case unGet m env (ptrToAddr (p `plusPtr` pos)) g of
             (# _, _, r #) -> pure r
         (B.PS buf pos len) = s
@@ -184,7 +184,7 @@ type family PutState s
 data PutEnv s = PutEnv
   { peChks :: !(IORef (NonEmpty Chunk))
   , peEnd  :: !(IORef (Ptr Word8))
-  , peTmp  :: Addr# -- TODO remove
+  , peReinterpretCast  :: Addr# -- TODO remove
   }
 
 newtype Put s a = Put
@@ -265,7 +265,7 @@ evalPutIO p ps = do
   chks <- newIORef (k:|[])
   end <- newIORef (Ptr (chkEnd k))
   Tup p' _ps' r <- allocaBytes 8 $ \t ->
-    pure $ case unPut p PutEnv { peChks = chks, peEnd = end, peTmp = ptrToAddr t } (chkBegin k) ps of
+    pure $ case unPut p PutEnv { peChks = chks, peEnd = end, peReinterpretCast = ptrToAddr t } (chkBegin k) ps of
              (# p', ps', r #) -> Tup p' ps' r
   cs <- readIORef chks
   s <- case cs of

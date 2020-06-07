@@ -324,11 +324,11 @@ reinterpretCast p x = do
 {-# INLINE reinterpretCast #-}
 
 reinterpretCastPut :: (Storable a, Storable b) => a -> Put s b
-reinterpretCastPut x = Put $ \e p s -> fixup $ Tup p s <$!> reinterpretCast (Ptr (peTmp e)) x
+reinterpretCastPut x = Put $ \e p s -> fixup $ Tup p s <$!> reinterpretCast (Ptr (peReinterpretCast e)) x
 {-# INLINE reinterpretCastPut #-}
 
 reinterpretCastGet :: (Storable a, Storable b) => a -> Get s b
-reinterpretCastGet x = Get $ \e p s -> fixup $ Tup p s <$!> reinterpretCast (Ptr (geTmp e)) x
+reinterpretCastGet x = Get $ \e p s -> fixup $ Tup p s <$!> reinterpretCast (Ptr (geReinterpretCast e)) x
 {-# INLINE reinterpretCastGet #-}
 
 -- The () type need never be written to disk: values of singleton type
