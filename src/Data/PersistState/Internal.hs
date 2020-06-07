@@ -64,14 +64,6 @@ import qualified Data.ByteString.Internal as B
 
 type family GetState s
 
--- TODO remove
-data Tup b c = Tup Addr# Addr# !b !c
-
--- TODO remove
-fixup :: IO (Tup a b) -> State# RealWorld -> (# State# RealWorld, Addr#, Addr#, a, b #)
-fixup (IO m) w = case m w of
-  (# w', Tup a b c d #) -> (# w', a, b, c, d #)
-
 data GetEnv s = GetEnv
   { geBuf   :: !(ForeignPtr Word8)
   , geBegin :: Addr#
@@ -214,24 +206,26 @@ newChunk size = do
   pure $! Chunk p (p `plusAddr#` n')
 {-# INLINE newChunk #-}
 
+addChunk :: PutEnv s -> Addr# -> Int -> IO Chunk
+addChunk e p n = do
+  k <- newChunk n
+  modifyIORef' (peChks e) $ \case
+    (c:|cs) -> k :| c { chkEnd = p } : cs
+  pure k
+{-# NOINLINE addChunk #-}
+
 -- | Ensure that @n@ bytes can be written.
 grow :: Int -> Put s ()
 grow !n@(I# n')
   | n < 0 = error "grow: negative length"
-  | otherwise = Put $ \e p q s -> fixup $ do
+  | otherwise = Put $ \e p q s w ->
       if isTrue# (q `minusAddr#` p >=# n') then
-        pure $! Tup p q s ()
+        (# w, p, q, s, () #)
       else
-        doGrow e p s n
+        let IO m = addChunk e p n
+        in case m w of
+          (# w', k #) -> (# w', chkBegin k, chkEnd k, s, () #)
 {-# INLINE grow #-}
-
-doGrow :: PutEnv s -> Addr# -> PutState s -> Int -> IO (Tup (PutState s) ())
-doGrow e p s n = do
-  k <- newChunk n
-  modifyIORef' (peChks e) $ \case
-    (c:|cs) -> k :| c { chkEnd = p } : cs
-  pure $! Tup (chkBegin k) (chkEnd k) s ()
-{-# NOINLINE doGrow #-}
 
 chunksLength :: [Chunk] -> Int
 chunksLength = foldl' (\s c -> s + I# (chkEnd c `minusAddr#` chkBegin c)) 0
@@ -246,18 +240,15 @@ catChunks chks = B.create (chunksLength chks) $ \p ->
                     pure (q `plusPtr` n)) p $ reverse chks
 {-# INLINE catChunks #-}
 
-evalPutIO :: Put s a -> PutState s -> IO (a, ByteString)
-evalPutIO p ps = do
+evalPut :: Put s a -> PutState s -> (a, ByteString)
+evalPut m ps = unsafePerformIO $ do
   k <- newChunk 0
   chks <- newIORef (k:|[])
-  Tup p' _q' _ps' r <- allocaBytes 8 $ \(Ptr t) ->
-    IO $ \w -> case unPut p PutEnv { peChks = chks, peReinterpretCast = t } (chkBegin k) (chkEnd k) ps w of
-                 (# w', p', q', ps', r #) -> (# w', Tup p' q' ps' r #)
+  (Ptr p, r) <- allocaBytes 8 $ \(Ptr t) ->
+    IO $ \w -> case unPut m PutEnv { peChks = chks, peReinterpretCast = t } (chkBegin k) (chkEnd k) ps w of
+                 (# w', p', _q', _ps', r #) -> (# w', (Ptr p', r) #)
   cs <- readIORef chks
   s <- case cs of
-    (x:|xs) -> catChunks $ x { chkEnd = p' } : xs
+    (x:|xs) -> catChunks $ x { chkEnd = p } : xs
   pure (r, s)
-
-evalPut :: Put s a -> PutState s -> (a, ByteString)
-evalPut s e = unsafePerformIO $ evalPutIO s e
 {-# NOINLINE evalPut #-}
