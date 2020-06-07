@@ -12,6 +12,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MagicHash #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -66,6 +67,8 @@ module Data.PersistState (
     , putBE
 ) where
 
+import GHC.Prim
+import GHC.Ptr
 import Control.Monad
 import Data.Bits
 import Data.ByteString (ByteString)
@@ -114,102 +117,102 @@ getHE = getLE
 putHE = putLE
 #endif
 
-poke16LE :: Ptr Word8 -> Word16 -> IO ()
-poke32LE :: Ptr Word8 -> Word32 -> IO ()
-poke64LE :: Ptr Word8 -> Word64 -> IO ()
+poke16LE :: Addr# -> Word16 -> IO ()
+poke32LE :: Addr# -> Word32 -> IO ()
+poke64LE :: Addr# -> Word64 -> IO ()
 {-# INLINE poke16LE #-}
 {-# INLINE poke32LE #-}
 {-# INLINE poke64LE #-}
 
-poke16BE :: Ptr Word8 -> Word16 -> IO ()
-poke32BE :: Ptr Word8 -> Word32 -> IO ()
-poke64BE :: Ptr Word8 -> Word64 -> IO ()
+poke16BE :: Addr# -> Word16 -> IO ()
+poke32BE :: Addr# -> Word32 -> IO ()
+poke64BE :: Addr# -> Word64 -> IO ()
 {-# INLINE poke16BE #-}
 {-# INLINE poke32BE #-}
 {-# INLINE poke64BE #-}
 
-peek16LE :: Ptr Word8 -> IO Word16
-peek32LE :: Ptr Word8 -> IO Word32
-peek64LE :: Ptr Word8 -> IO Word64
+peek16LE :: Addr# -> IO Word16
+peek32LE :: Addr# -> IO Word32
+peek64LE :: Addr# -> IO Word64
 {-# INLINE peek16LE #-}
 {-# INLINE peek32LE #-}
 {-# INLINE peek64LE #-}
 
-peek16BE :: Ptr Word8 -> IO Word16
-peek32BE :: Ptr Word8 -> IO Word32
-peek64BE :: Ptr Word8 -> IO Word64
+peek16BE :: Addr# -> IO Word16
+peek32BE :: Addr# -> IO Word32
+peek64BE :: Addr# -> IO Word64
 {-# INLINE peek16BE #-}
 {-# INLINE peek32BE #-}
 {-# INLINE peek64BE #-}
 
 #ifndef UNALIGNED_MEMORY
-pokeByte :: (Integral a) => Ptr Word8 -> a -> IO ()
-pokeByte p x = poke p (fromIntegral x)
+pokeByte :: Integral a => Addr# -> a -> IO ()
+pokeByte p x = poke @Word8 (Ptr p) (fromIntegral x)
 {-# INLINE pokeByte #-}
 
-peekByte :: (Integral a) => Ptr Word8 -> IO a
+peekByte :: Integral a => Addr# -> IO a
 peekByte p = do
-  !b <- peek p
+  !b <- peek @Word8 (Ptr p)
   return $! fromIntegral b
 {-# INLINE peekByte #-}
 
 poke16LE p y = do
   pokeByte p $ y
-  pokeByte (p `plusPtr` 1) $ y `unsafeShiftR` 8
+  pokeByte (p `plusAddr#` 1#) $ y `unsafeShiftR` 8
 
 poke16BE p y = do
   pokeByte p $ y `unsafeShiftR` 8
-  pokeByte (p `plusPtr` 1) $ y
+  pokeByte (p `plusAddr#` 1#) $ y
 
 poke32LE p y = do
   pokeByte p $ y
-  pokeByte (p `plusPtr` 1) $ y `unsafeShiftR` 8
-  pokeByte (p `plusPtr` 2) $ y `unsafeShiftR` 16
-  pokeByte (p `plusPtr` 3) $ y `unsafeShiftR` 24
+  pokeByte (p `plusAddr#` 1#) $ y `unsafeShiftR` 8
+  pokeByte (p `plusAddr#` 2#) $ y `unsafeShiftR` 16
+  pokeByte (p `plusAddr#` 3#) $ y `unsafeShiftR` 24
 
 poke32BE p y = do
   pokeByte p $ y `unsafeShiftR` 24
-  pokeByte (p `plusPtr` 1) $ y `unsafeShiftR` 16
-  pokeByte (p `plusPtr` 2) $ y `unsafeShiftR` 8
-  pokeByte (p `plusPtr` 3) $ y
+  pokeByte (p `plusAddr#` 1#) $ y `unsafeShiftR` 16
+  pokeByte (p `plusAddr#` 2#) $ y `unsafeShiftR` 8
+  pokeByte (p `plusAddr#` 3#) $ y
 
 poke64LE p y = do
   pokeByte p $ y
-  pokeByte (p `plusPtr` 1) $ y `unsafeShiftR` 8
-  pokeByte (p `plusPtr` 2) $ y `unsafeShiftR` 16
-  pokeByte (p `plusPtr` 3) $ y `unsafeShiftR` 24
-  pokeByte (p `plusPtr` 4) $ y `unsafeShiftR` 32
-  pokeByte (p `plusPtr` 5) $ y `unsafeShiftR` 40
-  pokeByte (p `plusPtr` 6) $ y `unsafeShiftR` 48
-  pokeByte (p `plusPtr` 7) $ y `unsafeShiftR` 56
+  pokeByte (p `plusAddr#` 1#) $ y `unsafeShiftR` 8
+  pokeByte (p `plusAddr#` 2#) $ y `unsafeShiftR` 16
+  pokeByte (p `plusAddr#` 3#) $ y `unsafeShiftR` 24
+  pokeByte (p `plusAddr#` 4#) $ y `unsafeShiftR` 32
+  pokeByte (p `plusAddr#` 5#) $ y `unsafeShiftR` 40
+  pokeByte (p `plusAddr#` 6#) $ y `unsafeShiftR` 48
+  pokeByte (p `plusAddr#` 7#) $ y `unsafeShiftR` 56
 
 poke64BE p y = do
   pokeByte p $ y `unsafeShiftR` 56
-  pokeByte (p `plusPtr` 1) $ y `unsafeShiftR` 48
-  pokeByte (p `plusPtr` 2) $ y `unsafeShiftR` 40
-  pokeByte (p `plusPtr` 3) $ y `unsafeShiftR` 32
-  pokeByte (p `plusPtr` 4) $ y `unsafeShiftR` 24
-  pokeByte (p `plusPtr` 5) $ y `unsafeShiftR` 16
-  pokeByte (p `plusPtr` 6) $ y `unsafeShiftR` 8
-  pokeByte (p `plusPtr` 7) $ y
+  pokeByte (p `plusAddr#` 1#) $ y `unsafeShiftR` 48
+  pokeByte (p `plusAddr#` 2#) $ y `unsafeShiftR` 40
+  pokeByte (p `plusAddr#` 3#) $ y `unsafeShiftR` 32
+  pokeByte (p `plusAddr#` 4#) $ y `unsafeShiftR` 24
+  pokeByte (p `plusAddr#` 5#) $ y `unsafeShiftR` 16
+  pokeByte (p `plusAddr#` 6#) $ y `unsafeShiftR` 8
+  pokeByte (p `plusAddr#` 7#) $ y
 
 peek16LE p = do
   !x0 <- peekByte @Word16 p
-  !x1 <- peekByte @Word16 (p `plusPtr` 1)
+  !x1 <- peekByte @Word16 (p `plusAddr#` 1#)
   return $ x1 `unsafeShiftL` 8
     .|. x0
 
 peek16BE p = do
   !x0 <- peekByte @Word16 p
-  !x1 <- peekByte @Word16 (p `plusPtr` 1)
+  !x1 <- peekByte @Word16 (p `plusAddr#` 1#)
   return $ x0 `unsafeShiftL` 8
     .|. x1
 
 peek32LE p = do
   !x0 <- peekByte @Word32 p
-  !x1 <- peekByte @Word32 (p `plusPtr` 1)
-  !x2 <- peekByte @Word32 (p `plusPtr` 2)
-  !x3 <- peekByte @Word32 (p `plusPtr` 3)
+  !x1 <- peekByte @Word32 (p `plusAddr#` 1#)
+  !x2 <- peekByte @Word32 (p `plusAddr#` 2#)
+  !x3 <- peekByte @Word32 (p `plusAddr#` 3#)
   return $ x3 `unsafeShiftL` 24
     .|. x2 `unsafeShiftL` 16
     .|. x1 `unsafeShiftL` 8
@@ -217,9 +220,9 @@ peek32LE p = do
 
 peek32BE p = do
   !x0 <- peekByte @Word32 p
-  !x1 <- peekByte @Word32 (p `plusPtr` 1)
-  !x2 <- peekByte @Word32 (p `plusPtr` 2)
-  !x3 <- peekByte @Word32 (p `plusPtr` 3)
+  !x1 <- peekByte @Word32 (p `plusAddr#` 1#)
+  !x2 <- peekByte @Word32 (p `plusAddr#` 2#)
+  !x3 <- peekByte @Word32 (p `plusAddr#` 3#)
   return $ x0 `unsafeShiftL` 24
     .|. x1 `unsafeShiftL` 16
     .|. x2 `unsafeShiftL` 8
@@ -227,13 +230,13 @@ peek32BE p = do
 
 peek64LE p = do
   !x0 <- peekByte @Word64 p
-  !x1 <- peekByte @Word64 (p `plusPtr` 1)
-  !x2 <- peekByte @Word64 (p `plusPtr` 2)
-  !x3 <- peekByte @Word64 (p `plusPtr` 3)
-  !x4 <- peekByte @Word64 (p `plusPtr` 4)
-  !x5 <- peekByte @Word64 (p `plusPtr` 5)
-  !x6 <- peekByte @Word64 (p `plusPtr` 6)
-  !x7 <- peekByte @Word64 (p `plusPtr` 7)
+  !x1 <- peekByte @Word64 (p `plusAddr#` 1#)
+  !x2 <- peekByte @Word64 (p `plusAddr#` 2#)
+  !x3 <- peekByte @Word64 (p `plusAddr#` 3#)
+  !x4 <- peekByte @Word64 (p `plusAddr#` 4#)
+  !x5 <- peekByte @Word64 (p `plusAddr#` 5#)
+  !x6 <- peekByte @Word64 (p `plusAddr#` 6#)
+  !x7 <- peekByte @Word64 (p `plusAddr#` 7#)
   return $ x7 `unsafeShiftL` 56
     .|. x6 `unsafeShiftL` 48
     .|. x5 `unsafeShiftL` 40
@@ -245,13 +248,13 @@ peek64LE p = do
 
 peek64BE p = do
   !x0 <- peekByte @Word64 p
-  !x1 <- peekByte @Word64 (p `plusPtr` 1)
-  !x2 <- peekByte @Word64 (p `plusPtr` 2)
-  !x3 <- peekByte @Word64 (p `plusPtr` 3)
-  !x4 <- peekByte @Word64 (p `plusPtr` 4)
-  !x5 <- peekByte @Word64 (p `plusPtr` 5)
-  !x6 <- peekByte @Word64 (p `plusPtr` 6)
-  !x7 <- peekByte @Word64 (p `plusPtr` 7)
+  !x1 <- peekByte @Word64 (p `plusAddr#` 1#)
+  !x2 <- peekByte @Word64 (p `plusAddr#` 2#)
+  !x3 <- peekByte @Word64 (p `plusAddr#` 3#)
+  !x4 <- peekByte @Word64 (p `plusAddr#` 4#)
+  !x5 <- peekByte @Word64 (p `plusAddr#` 5#)
+  !x6 <- peekByte @Word64 (p `plusAddr#` 6#)
+  !x7 <- peekByte @Word64 (p `plusAddr#` 7#)
   return $ x0 `unsafeShiftL` 56
     .|. x1 `unsafeShiftL` 48
     .|. x2 `unsafeShiftL` 40
@@ -318,21 +321,21 @@ toBE32 = byteSwap32
 toBE64 = byteSwap64
 #endif
 
-poke16LE p = poke (castPtr @_ @Word16 p) . toLE16
-poke32LE p = poke (castPtr @_ @Word32 p) . toLE32
-poke64LE p = poke (castPtr @_ @Word64 p) . toLE64
+poke16LE p = poke (Ptr p) . toLE16
+poke32LE p = poke (Ptr p) . toLE32
+poke64LE p = poke (Ptr p) . toLE64
 
-poke16BE p = poke (castPtr @_ @Word16 p) . toBE16
-poke32BE p = poke (castPtr @_ @Word32 p) . toBE32
-poke64BE p = poke (castPtr @_ @Word64 p) . toBE64
+poke16BE p = poke (Ptr p) . toBE16
+poke32BE p = poke (Ptr p) . toBE32
+poke64BE p = poke (Ptr p) . toBE64
 
-peek16LE p = fromLE16 <$!> peek (castPtr @_ @Word16 p)
-peek32LE p = fromLE32 <$!> peek (castPtr @_ @Word32 p)
-peek64LE p = fromLE64 <$!> peek (castPtr @_ @Word64 p)
+peek16LE p = fromLE16 <$!> peek (Ptr p)
+peek32LE p = fromLE32 <$!> peek (Ptr p)
+peek64LE p = fromLE64 <$!> peek (Ptr p)
 
-peek16BE p = fromBE16 <$!> peek (castPtr @_ @Word16 p)
-peek32BE p = fromBE32 <$!> peek (castPtr @_ @Word32 p)
-peek64BE p = fromBE64 <$!> peek (castPtr @_ @Word64 p)
+peek16BE p = fromBE16 <$!> peek (Ptr p)
+peek32BE p = fromBE32 <$!> peek (Ptr p)
+peek64BE p = fromBE64 <$!> peek (Ptr p)
 #endif
 
 newtype BigEndian a = BigEndian { unBE :: a }
@@ -380,86 +383,86 @@ getBE = unBE <$!> get
 
 unsafePutByte :: Integral a => a -> Put s ()
 unsafePutByte x = Put $ \_ p s -> do
-  poke p $ fromIntegral x
-  pure $! Tup (p `plusPtr` 1) s ()
+  poke @Word8 (Ptr p) $ fromIntegral x
+  pure $! Tup (p `plusAddr#` 1#) s ()
 {-# INLINE unsafePutByte #-}
 
 unsafePut16LE :: Integral a => a -> Put s ()
 unsafePut16LE x = Put $ \_ p s -> do
   poke16LE p $ fromIntegral x
-  pure $! Tup (p `plusPtr` 2) s ()
+  pure $! Tup (p `plusAddr#` 2#) s ()
 {-# INLINE unsafePut16LE #-}
 
 unsafePut32LE :: Integral a => a -> Put s ()
 unsafePut32LE x = Put $ \_ p s -> do
   poke32LE p $ fromIntegral x
-  pure $! Tup (p `plusPtr` 4) s ()
+  pure $! Tup (p `plusAddr#` 4#) s ()
 {-# INLINE unsafePut32LE #-}
 
 unsafePut64LE :: Integral a => a -> Put s ()
 unsafePut64LE x = Put $ \_ p s -> do
   poke64LE p $ fromIntegral x
-  pure $! Tup (p `plusPtr` 8) s ()
+  pure $! Tup (p `plusAddr#` 8#) s ()
 {-# INLINE unsafePut64LE #-}
 
 unsafePut16BE :: Integral a => a -> Put s ()
 unsafePut16BE x = Put $ \_ p s -> do
   poke16BE p $ fromIntegral x
-  pure $! Tup (p `plusPtr` 2) s ()
+  pure $! Tup (p `plusAddr#` 2#) s ()
 {-# INLINE unsafePut16BE #-}
 
 unsafePut32BE :: Integral a => a -> Put s ()
 unsafePut32BE x = Put $ \_ p s -> do
   poke32BE p $ fromIntegral x
-  pure $! Tup (p `plusPtr` 4) s ()
+  pure $! Tup (p `plusAddr#` 4#) s ()
 {-# INLINE unsafePut32BE #-}
 
 unsafePut64BE :: Integral a => a -> Put s ()
 unsafePut64BE x = Put $ \_ p s -> do
   poke64BE p $ fromIntegral x
-  pure $! Tup (p `plusPtr` 8) s ()
+  pure $! Tup (p `plusAddr#` 8#) s ()
 {-# INLINE unsafePut64BE #-}
 
 unsafeGetByte :: Num a => Get s a
 unsafeGetByte = Get $ \_ p s -> do
-  x <- peek p
-  pure $! Tup (p `plusPtr` 1) s (fromIntegral x)
+  x <- peek @Word8 (Ptr p)
+  pure $! Tup (p `plusAddr#` 1#) s (fromIntegral x)
 {-# INLINE unsafeGetByte #-}
 
 unsafeGet16LE :: Num a => Get s a
 unsafeGet16LE = Get $ \_ p s -> do
   x <- peek16LE p
-  pure $! Tup (p `plusPtr` 2) s (fromIntegral x)
+  pure $! Tup (p `plusAddr#` 2#) s (fromIntegral x)
 {-# INLINE unsafeGet16LE #-}
 
 unsafeGet32LE :: Num a => Get s a
 unsafeGet32LE = Get $ \_ p s -> do
   x <- peek32LE p
-  pure $! Tup (p `plusPtr` 4) s (fromIntegral x)
+  pure $! Tup (p `plusAddr#` 4#) s (fromIntegral x)
 {-# INLINE unsafeGet32LE #-}
 
 unsafeGet64LE :: Num a => Get s a
 unsafeGet64LE = Get $ \_ p s -> do
   x <- peek64LE p
-  pure $! Tup (p `plusPtr` 8) s (fromIntegral x)
+  pure $! Tup (p `plusAddr#` 8#) s (fromIntegral x)
 {-# INLINE unsafeGet64LE #-}
 
 unsafeGet16BE :: Num a => Get s a
 unsafeGet16BE = Get $ \_ p s -> do
   x <- peek16BE p
-  pure $! Tup (p `plusPtr` 2) s (fromIntegral x)
+  pure $! Tup (p `plusAddr#` 2#) s (fromIntegral x)
 {-# INLINE unsafeGet16BE #-}
 
 unsafeGet32BE :: Num a => Get s a
 unsafeGet32BE = Get $ \_ p s -> do
   x <- peek32BE p
-  pure $! Tup (p `plusPtr` 4) s (fromIntegral x)
+  pure $! Tup (p `plusAddr#` 4#) s (fromIntegral x)
 {-# INLINE unsafeGet32BE #-}
 
 unsafeGet64BE :: Num a => Get s a
 unsafeGet64BE = Get $ \_ p s -> do
   x <- peek64BE p
-  pure $! Tup (p `plusPtr` 8) s (fromIntegral x)
+  pure $! Tup (p `plusAddr#` 8#) s (fromIntegral x)
 {-# INLINE unsafeGet64BE #-}
 
 reinterpretCast :: (Storable a, Storable b) => Ptr p -> a -> IO b
@@ -469,11 +472,11 @@ reinterpretCast p x = do
 {-# INLINE reinterpretCast #-}
 
 reinterpretCastPut :: (Storable a, Storable b) => a -> Put s b
-reinterpretCastPut x = Put $ \e p s -> Tup p s <$!> reinterpretCast (peTmp e) x
+reinterpretCastPut x = Put $ \e p s -> Tup p s <$!> reinterpretCast (Ptr (peTmp e)) x
 {-# INLINE reinterpretCastPut #-}
 
 reinterpretCastGet :: (Storable a, Storable b) => a -> Get s b
-reinterpretCastGet x = Get $ \e p s -> Tup p s <$!> reinterpretCast (geTmp e) x
+reinterpretCastGet x = Get $ \e p s -> Tup p s <$!> reinterpretCast (Ptr (geTmp e)) x
 {-# INLINE reinterpretCastGet #-}
 
 -- The () type need never be written to disk: values of singleton type
@@ -854,8 +857,8 @@ instance Persist s S.ShortByteString where
     put n
     grow n
     Put $ \_ p s -> do
-      S.copyToPtr b 0 p n
-      pure $! Tup (p `plusPtr` n) s ()
+      S.copyToPtr b 0 (Ptr p) n
+      pure $! Tup (ptrToAddr (Ptr p `plusPtr` n)) s ()
 
   get = S.toShort <$!> get
 
@@ -1002,13 +1005,13 @@ ensure n
 skip :: Int -> Get s ()
 skip n = do
   ensure n
-  Get $ \_ p s -> pure $! Tup (p `plusPtr` n) s ()
+  Get $ \_ p s -> pure $! Tup (ptrToAddr (Ptr p `plusPtr` n)) s ()
 {-# INLINE skip #-}
 
 -- | Get the number of remaining unparsed bytes.  Useful for checking whether
 -- all input has been consumed.
 remaining :: Get s Int
-remaining = Get $ \e p s -> pure $! Tup p s (geEnd e `minusPtr` p)
+remaining = Get $ \e p s -> pure $! Tup p s (Ptr (geEnd e) `minusPtr` Ptr p)
 {-# INLINE remaining #-}
 
 -- -- | Succeed if end of input reached.
@@ -1022,7 +1025,7 @@ eof = do
 getBytes :: Int -> Get s ByteString
 getBytes n = do
   ensure n
-  Get $ \e p s -> pure $! Tup (p `plusPtr` n) s (B.PS (geBuf e) (p `minusPtr` geBegin e) n)
+  Get $ \e p s -> pure $! Tup (ptrToAddr (Ptr p `plusPtr` n)) s (B.PS (geBuf e) (Ptr p `minusPtr` Ptr (geBegin e)) n)
 {-# INLINE getBytes #-}
 
 -- | An efficient 'get' method for strict ByteStrings. Fails if fewer
@@ -1040,8 +1043,8 @@ putByteString :: ByteString -> Put s ()
 putByteString (B.PS b o n) = do
   grow n
   Put $ \_ p s -> do
-    withForeignPtr b $ \q -> B.memcpy p (q `plusPtr` o) n
-    pure $! Tup (p `plusPtr` n) s ()
+    withForeignPtr b $ \q -> B.memcpy (Ptr p) (q `plusPtr` o) n
+    pure $! Tup (ptrToAddr (Ptr p `plusPtr` n)) s ()
 {-# INLINE putByteString #-}
 
 modifyStateGet :: (GetState s -> GetState s) -> Get s ()

@@ -11,6 +11,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MagicHash #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -21,6 +22,7 @@
 
 module Data.PersistState.Internal (
     Tup(..)
+    , ptrToAddr
 
     -- * The Get type
     , Get(..)
@@ -32,7 +34,6 @@ module Data.PersistState.Internal (
     , stateGet
     , setStateGet
     , runGet
-    , runGetIO
 
     -- * The Put type
     , Put(..)
@@ -40,12 +41,13 @@ module Data.PersistState.Internal (
     , PutEnv(..)
     , Chunk(..)
     , evalPut
-    , evalPutIO
     , grow
     , statePut
     , setStatePut
 ) where
 
+import GHC.Prim
+import GHC.Ptr
 import Control.Exception
 import Control.Monad
 import Data.ByteString (ByteString)
@@ -61,19 +63,23 @@ import qualified Data.ByteString.Internal as B
 
 #include "MachDeps.h"
 
-data Tup a b c = Tup !a !b !c
+data Tup b c = Tup Addr# !b !c
 
 type family GetState s
 
+-- TODO remove
+ptrToAddr :: Ptr a -> Addr#
+ptrToAddr (Ptr a) = a
+
 data GetEnv s = GetEnv
   { geBuf   :: !(ForeignPtr Word8)
-  , geBegin :: {-#UNPACK#-}!(Ptr Word8)
-  , geEnd   :: {-#UNPACK#-}!(Ptr Word8)
-  , geTmp   :: {-#UNPACK#-}!(Ptr Word8)
+  , geBegin :: Addr#
+  , geEnd   :: Addr#
+  , geTmp   :: Addr#
   }
 
 newtype Get s a = Get
-  { unGet :: GetEnv s -> Ptr Word8 -> GetState s -> IO (Tup (Ptr Word8) (GetState s) a)
+  { unGet :: GetEnv s -> Addr# -> GetState s -> IO (Tup (GetState s) a)
   }
 
 instance Functor (Get s) where
@@ -122,7 +128,7 @@ instance Fail.MonadFail (Get s) where
   {-# INLINE fail #-}
 
 offset :: Get s Int
-offset = Get $ \e p s -> pure $! Tup p s (p `minusPtr` (geBegin e))
+offset = Get $ \e p s -> pure $! Tup p s (Ptr p `minusPtr` Ptr (geBegin e))
 {-# INLINE offset #-}
 
 failGet :: (Int -> String -> GetException) -> String -> Get s a
@@ -149,8 +155,8 @@ setStatePut s = Put $ \_ p _ -> pure $! Tup p s ()
 runGetIO :: Get s a -> GetState s -> ByteString -> IO a
 runGetIO m g s = run
   where run = withForeignPtr buf $ \p -> allocaBytes 8 $ \t -> do
-          let env = GetEnv { geBuf = buf, geBegin = p, geEnd = p `plusPtr` (pos + len), geTmp = t }
-          Tup _ _ r <- unGet m env (p `plusPtr` pos) g
+          let env = GetEnv { geBuf = buf, geBegin = ptrToAddr p, geEnd = ptrToAddr (p `plusPtr` (pos + len)), geTmp = ptrToAddr t }
+          Tup _ _ r <- unGet m env (ptrToAddr (p `plusPtr` pos)) g
           pure r
         (B.PS buf pos len) = s
 
@@ -161,8 +167,8 @@ runGet m g s = unsafePerformIO $ catch (Right <$!> (runGetIO m g s)) handler
 {-# NOINLINE runGet #-}
 
 data Chunk = Chunk
-  { chkBegin :: {-#UNPACK#-}!(Ptr Word8)
-  , chkEnd   :: {-#UNPACK#-}!(Ptr Word8)
+  { chkBegin :: Addr#
+  , chkEnd   :: Addr#
   }
 
 type family PutState s
@@ -170,11 +176,11 @@ type family PutState s
 data PutEnv s = PutEnv
   { peChks :: !(IORef (NonEmpty Chunk))
   , peEnd  :: !(IORef (Ptr Word8))
-  , peTmp  :: {-#UNPACK#-}!(Ptr Word8)
+  , peTmp  :: Addr#
   }
 
 newtype Put s a = Put
-  { unPut :: PutEnv s -> Ptr Word8 -> PutState s -> IO (Tup (Ptr Word8) (PutState s) a) }
+  { unPut :: PutEnv s -> Addr# -> PutState s -> IO (Tup (PutState s) a) }
 
 instance Functor (Put s) where
   fmap f m = Put $ \e p s -> do
@@ -211,7 +217,7 @@ newChunk :: Int -> IO Chunk
 newChunk size = do
   let n = max size minChunkSize
   p <- mallocBytes n
-  pure $! Chunk p $ p `plusPtr` n
+  pure $! Chunk (ptrToAddr p) (ptrToAddr (p `plusPtr` n))
 {-# INLINE newChunk #-}
 
 -- | Ensure that @n@ bytes can be written.
@@ -220,31 +226,31 @@ grow n
   | n < 0 = error "grow: negative length"
   | otherwise = Put $ \e p s -> do
       end <- readIORef (peEnd e)
-      if end `minusPtr` p >= n then
+      if end `minusPtr` (Ptr p) >= n then
         pure $! Tup p s ()
       else
         doGrow e p s n
 {-# INLINE grow #-}
 
-doGrow :: PutEnv s -> Ptr Word8 -> PutState s -> Int -> IO (Tup (Ptr Word8) (PutState s) ())
+doGrow :: PutEnv s -> Addr# -> PutState s -> Int -> IO (Tup (PutState s) ())
 doGrow e p s n = do
   k <- newChunk n
   modifyIORef' (peChks e) $ \case
     (c:|cs) -> k :| c { chkEnd = p } : cs
-  writeIORef (peEnd e) (chkEnd k)
+  writeIORef (peEnd e) (Ptr (chkEnd k))
   pure $! Tup (chkBegin k) s ()
 {-# NOINLINE doGrow #-}
 
 chunksLength :: [Chunk] -> Int
-chunksLength = foldr (\c s -> s + chkEnd c `minusPtr` chkBegin c) 0
+chunksLength = foldr (\c s -> s + Ptr (chkEnd c) `minusPtr` Ptr (chkBegin c)) 0
 {-# INLINE chunksLength #-}
 
 catChunks :: [Chunk] -> IO ByteString
 catChunks chks = B.create (chunksLength chks) $ \p ->
   void $ foldlM (\q c -> do
-                    let n = chkEnd c `minusPtr` chkBegin c
-                    B.memcpy q (chkBegin c) n
-                    free $ chkBegin c
+                    let n = Ptr (chkEnd c) `minusPtr` Ptr (chkBegin c)
+                    B.memcpy q (Ptr (chkBegin c)) n
+                    free $ Ptr (chkBegin c)
                     pure (q `plusPtr` n)) p $ reverse chks
 {-# INLINE catChunks #-}
 
@@ -252,9 +258,9 @@ evalPutIO :: Put s a -> PutState s -> IO (a, ByteString)
 evalPutIO p ps = do
   k <- newChunk 0
   chks <- newIORef (k:|[])
-  end <- newIORef (chkEnd k)
+  end <- newIORef (Ptr (chkEnd k))
   Tup p' _ps' r <- allocaBytes 8 $ \t ->
-    unPut p PutEnv { peChks = chks, peEnd = end, peTmp = t } (chkBegin k) ps
+    unPut p PutEnv { peChks = chks, peEnd = end, peTmp = ptrToAddr t } (chkBegin k) ps
   cs <- readIORef chks
   s <- case cs of
     (x:|xs) -> catChunks $ x { chkEnd = p' } : xs
