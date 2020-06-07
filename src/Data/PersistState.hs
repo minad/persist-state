@@ -270,79 +270,53 @@ peek64BE p = do
     .|. x7
 
 #else
-fromLE16 :: Word16 -> Word16
-fromLE32 :: Word32 -> Word32
-fromLE64 :: Word64 -> Word64
-{-# INLINE fromLE16 #-}
-{-# INLINE fromLE32 #-}
-{-# INLINE fromLE64 #-}
+castLE16 :: Word16 -> Word16
+castLE32 :: Word32 -> Word32
+castLE64 :: Word64 -> Word64
+{-# INLINE castLE16 #-}
+{-# INLINE castLE32 #-}
+{-# INLINE castLE64 #-}
 
-fromBE16 :: Word16 -> Word16
-fromBE32 :: Word32 -> Word32
-fromBE64 :: Word64 -> Word64
-{-# INLINE fromBE16 #-}
-{-# INLINE fromBE32 #-}
-{-# INLINE fromBE64 #-}
-
-toLE16 :: Word16 -> Word16
-toLE32 :: Word32 -> Word32
-toLE64 :: Word64 -> Word64
-{-# INLINE toLE16 #-}
-{-# INLINE toLE32 #-}
-{-# INLINE toLE64 #-}
-
-toBE16 :: Word16 -> Word16
-toBE32 :: Word32 -> Word32
-toBE64 :: Word64 -> Word64
-{-# INLINE toBE16 #-}
-{-# INLINE toBE32 #-}
-{-# INLINE toBE64 #-}
+castBE16 :: Word16 -> Word16
+castBE32 :: Word32 -> Word32
+castBE64 :: Word64 -> Word64
+{-# INLINE castBE16 #-}
+{-# INLINE castBE32 #-}
+{-# INLINE castBE64 #-}
 
 #ifdef WORDS_BIGENDIAN
-fromBE16 = id
-fromBE32 = id
-fromBE64 = id
-toBE16 = id
-toBE32 = id
-toBE64 = id
-fromLE16 = byteSwap16
-fromLE32 = byteSwap32
-fromLE64 = byteSwap64
-toLE16 = byteSwap16
-toLE32 = byteSwap32
-toLE64 = byteSwap64
+castBE16 = id
+castBE32 = id
+castBE64 = id
+castLE16 = byteSwap16
+castLE32 = byteSwap32
+castLE64 = byteSwap64
 #else
-fromLE16 = id
-fromLE32 = id
-fromLE64 = id
-toLE16 = id
-toLE32 = id
-toLE64 = id
-fromBE16 = byteSwap16
-fromBE32 = byteSwap32
-fromBE64 = byteSwap64
-toBE16 = byteSwap16
-toBE32 = byteSwap32
-toBE64 = byteSwap64
+castLE16 = id
+castLE32 = id
+castLE64 = id
+castBE16 = byteSwap16
+castBE32 = byteSwap32
+castBE64 = byteSwap64
 #endif
 
-poke16LE p = poke (Ptr p) . toLE16
-poke32LE p = poke (Ptr p) . toLE32
-poke64LE p = poke (Ptr p) . toLE64
+poke16LE p = poke (Ptr p) . castLE16
+poke32LE p = poke (Ptr p) . castLE32
+poke64LE p = poke (Ptr p) . castLE64
 
-poke16BE p = poke (Ptr p) . toBE16
-poke32BE p = poke (Ptr p) . toBE32
-poke64BE p = poke (Ptr p) . toBE64
+poke16BE p = poke (Ptr p) . castBE16
+poke32BE p = poke (Ptr p) . castBE32
+poke64BE p = poke (Ptr p) . castBE64
 
 peek8 p = peek (Ptr p)
 
-peek16LE p = fromLE16 <$!> peek (Ptr p)
-peek32LE p = fromLE32 <$!> peek (Ptr p)
-peek64LE p = fromLE64 <$!> peek (Ptr p)
+peek16LE p = castLE16 <$!> peek (Ptr p)
+peek32LE p = castLE32 <$!> peek (Ptr p)
+peek64LE p = castLE64 <$!> peek (Ptr p)
 
-peek16BE p = fromBE16 <$!> peek (Ptr p)
-peek32BE p = fromBE32 <$!> peek (Ptr p)
-peek64BE p = fromBE64 <$!> peek (Ptr p)
+peek16BE p = castBE16 <$!> peek (Ptr p)
+peek32BE p = castBE32 <$!> peek (Ptr p)
+peek64BE p = castBE64 <$!> peek (Ptr p)
 #endif
 
 newtype BigEndian a = BigEndian { unBE :: a }

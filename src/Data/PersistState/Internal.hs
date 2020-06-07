@@ -84,7 +84,7 @@ data GetEnv s = GetEnv
   { geBuf   :: !(ForeignPtr Word8)
   , geBegin :: Addr#
   , geEnd   :: Addr#
-  , geTmp   :: Addr#
+  , geTmp   :: Addr# -- TODO remove
   }
 
 newtype Get s a = Get
@@ -184,7 +184,7 @@ type family PutState s
 data PutEnv s = PutEnv
   { peChks :: !(IORef (NonEmpty Chunk))
   , peEnd  :: !(IORef (Ptr Word8))
-  , peTmp  :: Addr#
+  , peTmp  :: Addr# -- TODO remove
   }
 
 newtype Put s a = Put
