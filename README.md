@@ -3,6 +3,9 @@
 [![Hackage](https://img.shields.io/hackage/v/persist.svg)](https://hackage.haskell.org/package/persist)
 [![Build Status](https://secure.travis-ci.org/minad/persist.png?branch=master)](http://travis-ci.org/minad/persist)
 
+**NOTE**: This library supports additional state threaded through the serialization monad. The same
+could be achieved by using monad transformer at the cost of some performance penalty.
+
 persist is a reasonably fast binary serialization library operating on strict ByteStrings with small dependency footprint.
 The binary format uses the little endian representation on both big- and little endian machines.
 The API design is mostly compatible with the cereal library. However the binary format

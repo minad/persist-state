@@ -20,7 +20,7 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
 
-module Data.Persist (
+module Data.PersistState (
 
     -- * The Persist class
       Persist(..)
@@ -75,7 +75,7 @@ import Data.IntSet (IntSet)
 import Data.List (unfoldr)
 import Data.List.NonEmpty (NonEmpty(..))
 import Data.Map (Map)
-import Data.Persist.Internal
+import Data.PersistState.Internal
 import Data.Proxy
 import Data.Sequence (Seq)
 import Data.Set (Set)

@@ -13,7 +13,7 @@ import           Data.Word
 import           Data.Function
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LB
-import           Data.Persist
+import           Data.PersistState
 import           Test.Framework (Test(),testGroup)
 import           Test.Framework.Providers.QuickCheck2 (testProperty)
 import           Test.QuickCheck as QC

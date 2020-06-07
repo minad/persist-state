@@ -16,7 +16,7 @@
 module RoundTrip where
 
 import Numeric.Natural
-import Data.Persist
+import Data.PersistState
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Word

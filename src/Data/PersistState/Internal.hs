@@ -19,7 +19,7 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
 
-module Data.Persist.Internal (
+module Data.PersistState.Internal (
       (:!:)(..)
     -- * The Get type
     , Get(..)
