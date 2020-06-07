@@ -48,7 +48,7 @@ module Data.PersistState.Internal (
 import GHC.Prim
 import GHC.Ptr
 import GHC.IO
-import GHC.Int
+import GHC.Exts
 import Control.Exception
 import Control.Monad
 import Data.ByteString (ByteString)
@@ -65,12 +65,12 @@ import qualified Data.ByteString.Internal as B
 type family GetState s
 
 -- TODO remove
-data Tup b c = Tup Addr# !b !c
+data Tup b c = Tup Addr# Addr# !b !c
 
 -- TODO remove
-fixup :: IO (Tup a b) -> State# RealWorld -> (# State# RealWorld, Addr#, a, b #)
+fixup :: IO (Tup a b) -> State# RealWorld -> (# State# RealWorld, Addr#, Addr#, a, b #)
 fixup (IO m) w = case m w of
-  (# w', Tup a b c #) -> (# w', a, b, c #)
+  (# w', Tup a b c d #) -> (# w', a, b, c, d #)
 
 data GetEnv s = GetEnv
   { geBuf   :: !(ForeignPtr Word8)
@@ -141,7 +141,7 @@ stateGet = Get $ \_ p s -> (# p, s, s #)
 {-# INLINE stateGet #-}
 
 statePut :: Put s (PutState s)
-statePut = Put $ \_ p s w -> (# w, p, s, s #)
+statePut = Put $ \_ p q s w -> (# w, p, q, s, s #)
 {-# INLINE statePut #-}
 
 setStateGet :: GetState s -> Get s ()
@@ -149,7 +149,7 @@ setStateGet s = Get $ \_ p _ -> (# p, s, () #)
 {-# INLINE setStateGet #-}
 
 setStatePut :: PutState s -> Put s ()
-setStatePut s = Put $ \_ p _ w -> (# w, p, s, () #)
+setStatePut s = Put $ \_ p q _ w -> (# w, p, q, s, () #)
 {-# INLINE setStatePut #-}
 
 -- | Run the Get monad applies a 'get'-based parser on the input ByteString
@@ -172,26 +172,25 @@ type family PutState s
 
 data PutEnv s = PutEnv
   { peChks :: !(IORef (NonEmpty Chunk))
-  , peEnd  :: !(IORef (Ptr Word8))
   , peReinterpretCast :: Addr#
   }
 
 newtype Put s a = Put
-  { unPut :: PutEnv s -> Addr# -> PutState s
-          -> State# RealWorld -> (# State# RealWorld, Addr#, PutState s, a #) }
+  { unPut :: PutEnv s -> Addr# -> Addr# -> PutState s
+          -> State# RealWorld -> (# State# RealWorld, Addr#, Addr#, PutState s, a #) }
 
 instance Functor (Put s) where
-  fmap f m = Put $ \e p s w -> case unPut m e p s w of
-    (# w', p', s', x #) -> (# w', p', s', f x #)
+  fmap f m = Put $ \e p q s w -> case unPut m e p q s w of
+    (# w', p', q', s', x #) -> (# w', p', q', s', f x #)
   {-# INLINE fmap #-}
 
 instance Applicative (Put s) where
-  pure a = Put $ \_ p s w -> (# w, p, s, a #)
+  pure a = Put $ \_ p q s w -> (# w, p, q, s, a #)
   {-# INLINE pure #-}
 
-  f <*> a = Put $ \e p s w -> case unPut f e p s w of
-    (# w', p', s', f' #) -> case unPut a e p' s' w' of
-      (# w'', p'', s'', a' #) -> (# w'', p'', s'', f' a' #)
+  f <*> a = Put $ \e p q s w -> case unPut f e p q s w of
+    (# w', p', q', s', f' #) -> case unPut a e p' q' s' w' of
+      (# w'', p'', q'', s'', a' #) -> (# w'', p'', q'', s'', f' a' #)
   {-# INLINE (<*>) #-}
 
   m1 *> m2 = do
@@ -200,8 +199,8 @@ instance Applicative (Put s) where
   {-# INLINE (*>) #-}
 
 instance Monad (Put s) where
-  m >>= f = Put $ \e p s w -> case unPut m e p s w of
-    (# w', p', s', x #) -> unPut (f x) e p' s' w'
+  m >>= f = Put $ \e p q s w -> case unPut m e p q s w of
+    (# w', p', q', s', x #) -> unPut (f x) e p' q' s' w'
   {-# INLINE (>>=) #-}
 
 minChunkSize :: Int
@@ -217,12 +216,11 @@ newChunk size = do
 
 -- | Ensure that @n@ bytes can be written.
 grow :: Int -> Put s ()
-grow n
+grow !n@(I# n')
   | n < 0 = error "grow: negative length"
-  | otherwise = Put $ \e p s -> fixup $ do
-      end <- readIORef (peEnd e)
-      if end `minusPtr` (Ptr p) >= n then
-        pure $! Tup p s ()
+  | otherwise = Put $ \e p q s -> fixup $ do
+      if isTrue# (q `minusAddr#` p >=# n') then
+        pure $! Tup p q s ()
       else
         doGrow e p s n
 {-# INLINE grow #-}
@@ -232,8 +230,7 @@ doGrow e p s n = do
   k <- newChunk n
   modifyIORef' (peChks e) $ \case
     (c:|cs) -> k :| c { chkEnd = p } : cs
-  writeIORef (peEnd e) (Ptr (chkEnd k))
-  pure $! Tup (chkBegin k) s ()
+  pure $! Tup (chkBegin k) (chkEnd k) s ()
 {-# NOINLINE doGrow #-}
 
 chunksLength :: [Chunk] -> Int
@@ -253,10 +250,9 @@ evalPutIO :: Put s a -> PutState s -> IO (a, ByteString)
 evalPutIO p ps = do
   k <- newChunk 0
   chks <- newIORef (k:|[])
-  end <- newIORef (Ptr (chkEnd k))
-  Tup p' _ps' r <- allocaBytes 8 $ \(Ptr t) ->
-    IO $ \w -> case unPut p PutEnv { peChks = chks, peEnd = end, peReinterpretCast = t } (chkBegin k) ps w of
-                 (# w', p', ps', r #) -> (# w', Tup p' ps' r #)
+  Tup p' _q' _ps' r <- allocaBytes 8 $ \(Ptr t) ->
+    IO $ \w -> case unPut p PutEnv { peChks = chks, peReinterpretCast = t } (chkBegin k) (chkEnd k) ps w of
+                 (# w', p', q', ps', r #) -> (# w', Tup p' q' ps' r #)
   cs <- readIORef chks
   s <- case cs of
     (x:|xs) -> catChunks $ x { chkEnd = p' } : xs

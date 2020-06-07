@@ -221,38 +221,38 @@ getBE = unBE <$!> get
 {-# INLINE getBE #-}
 
 unsafePut8 :: Integral a => a -> Put s ()
-unsafePut8 x | (W8# x') <- fromIntegral x = Put $ \_ p s w ->
-                 (# poke8 p x' w, p `plusAddr#` 1#, s, () #)
+unsafePut8 x | (W8# x') <- fromIntegral x = Put $ \_ p q s w ->
+                 (# poke8 p x' w, p `plusAddr#` 1#, q, s, () #)
 {-# INLINE unsafePut8 #-}
 
 unsafePut16LE :: Integral a => a -> Put s ()
-unsafePut16LE x | (W16# x') <- fromIntegral x = Put $ \_ p s w ->
-                 (# poke16LE p x' w, p `plusAddr#` 2#, s, () #)
+unsafePut16LE x | (W16# x') <- fromIntegral x = Put $ \_ p q s w ->
+                 (# poke16LE p x' w, p `plusAddr#` 2#, q, s, () #)
 {-# INLINE unsafePut16LE #-}
 
 unsafePut32LE :: Integral a => a -> Put s ()
-unsafePut32LE x | (W32# x') <- fromIntegral x = Put $ \_ p s w ->
-                 (# poke32LE p x' w, p `plusAddr#` 4#, s, () #)
+unsafePut32LE x | (W32# x') <- fromIntegral x = Put $ \_ p q s w ->
+                 (# poke32LE p x' w, p `plusAddr#` 4#, q, s, () #)
 {-# INLINE unsafePut32LE #-}
 
 unsafePut64LE :: Integral a => a -> Put s ()
-unsafePut64LE x | (W64# x') <- fromIntegral x = Put $ \_ p s w ->
-                 (# poke64LE p x' w, p `plusAddr#` 8#, s, () #)
+unsafePut64LE x | (W64# x') <- fromIntegral x = Put $ \_ p q s w ->
+                 (# poke64LE p x' w, p `plusAddr#` 8#, q, s, () #)
 {-# INLINE unsafePut64LE #-}
 
 unsafePut16BE :: Integral a => a -> Put s ()
-unsafePut16BE x | (W16# x') <- fromIntegral x = Put $ \_ p s w ->
-                 (# poke16BE p x' w, p `plusAddr#` 2#, s, () #)
+unsafePut16BE x | (W16# x') <- fromIntegral x = Put $ \_ p q s w ->
+                 (# poke16BE p x' w, p `plusAddr#` 2#, q, s, () #)
 {-# INLINE unsafePut16BE #-}
 
 unsafePut32BE :: Integral a => a -> Put s ()
-unsafePut32BE x | (W32# x') <- fromIntegral x = Put $ \_ p s w ->
-                 (# poke32BE p x' w, p `plusAddr#` 4#, s, () #)
+unsafePut32BE x | (W32# x') <- fromIntegral x = Put $ \_ p q s w ->
+                 (# poke32BE p x' w, p `plusAddr#` 4#, q, s, () #)
 {-# INLINE unsafePut32BE #-}
 
 unsafePut64BE :: Integral a => a -> Put s ()
-unsafePut64BE x | (W64# x') <- fromIntegral x = Put $ \_ p s w ->
-                 (# poke64BE p x' w, p `plusAddr#` 8#, s, () #)
+unsafePut64BE x | (W64# x') <- fromIntegral x = Put $ \_ p q s w ->
+                 (# poke64BE p x' w, p `plusAddr#` 8#, q, s, () #)
 {-# INLINE unsafePut64BE #-}
 
 unsafeGet8 :: Num a => Get s a
@@ -305,17 +305,17 @@ reinterpretWord32AsFloat (W32# x) = Get $ \e p s ->
 {-# INLINE reinterpretWord32AsFloat #-}
 
 reinterpretDoubleAsWord64 :: Double -> Put s Word64
-reinterpretDoubleAsWord64 (D# x) = Put $ \e p s w ->
+reinterpretDoubleAsWord64 (D# x) = Put $ \e p q s w ->
   case writeDoubleOffAddr# (peReinterpretCast e) 0# x w of
     w' -> case readWord64OffAddr# (peReinterpretCast e) 0# w' of
-      (# w'', d #) -> (# w'', p, s, W64# d #)
+      (# w'', d #) -> (# w'', p, q, s, W64# d #)
 {-# INLINE reinterpretDoubleAsWord64 #-}
 
 reinterpretFloatAsWord32 :: Float -> Put s Word32
-reinterpretFloatAsWord32 (F# x) = Put $ \e p s w ->
+reinterpretFloatAsWord32 (F# x) = Put $ \e p q s w ->
   case writeFloatOffAddr# (peReinterpretCast e) 0# x w of
     w' -> case readWord32OffAddr# (peReinterpretCast e) 0# w' of
-      (# w'', d #) -> (# w'', p, s, W32# d #)
+      (# w'', d #) -> (# w'', p, q, s, W32# d #)
 {-# INLINE reinterpretFloatAsWord32 #-}
 
 -- The () type need never be written to disk: values of singleton type
@@ -875,10 +875,10 @@ runPut s = snd . evalPut s
 putByteString :: ByteString -> Put s ()
 putByteString !(B.PS b o n@(I# n')) = do
   grow n
-  Put $ \_ p s w ->
-    let IO m = withForeignPtr b $ \q -> B.memcpy (Ptr p) (q `plusPtr` o) n
+  Put $ \_ p q s w ->
+    let IO m = withForeignPtr b $ \b' -> B.memcpy (Ptr p) (b' `plusPtr` o) n
     in case m w of
-      (# w', _ #) -> (# w', p `plusAddr#` n', s, () #)
+      (# w', _ #) -> (# w', p `plusAddr#` n', q, s, () #)
 {-# INLINE putByteString #-}
 
 modifyStateGet :: (GetState s -> GetState s) -> Get s ()
