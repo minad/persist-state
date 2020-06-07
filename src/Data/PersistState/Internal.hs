@@ -23,11 +23,8 @@
 {-# LANGUAGE BangPatterns #-}
 
 module Data.PersistState.Internal (
-    fixup
-    , Tup(..)
-
     -- * The Get type
-    , Get(..)
+    Get(..)
     , GetState
     , GetEnv(..)
     , GetException(..)
@@ -55,7 +52,7 @@ import GHC.Int
 import Control.Exception
 import Control.Monad
 import Data.ByteString (ByteString)
-import Data.Foldable (foldlM)
+import Data.Foldable (foldlM, foldl')
 import Data.IORef
 import Data.List.NonEmpty (NonEmpty(..))
 import Data.Word
@@ -240,13 +237,13 @@ doGrow e p s n = do
 {-# NOINLINE doGrow #-}
 
 chunksLength :: [Chunk] -> Int
-chunksLength = foldr (\c s -> s + Ptr (chkEnd c) `minusPtr` Ptr (chkBegin c)) 0
+chunksLength = foldl' (\s c -> s + I# (chkEnd c `minusAddr#` chkBegin c)) 0
 {-# INLINE chunksLength #-}
 
 catChunks :: [Chunk] -> IO ByteString
 catChunks chks = B.create (chunksLength chks) $ \p ->
   void $ foldlM (\q c -> do
-                    let n = Ptr (chkEnd c) `minusPtr` Ptr (chkBegin c)
+                    let n = I# (chkEnd c `minusAddr#` chkBegin c)
                     B.memcpy q (Ptr (chkBegin c)) n
                     free $ Ptr (chkBegin c)
                     pure (q `plusPtr` n)) p $ reverse chks

@@ -71,6 +71,7 @@ module Data.PersistState (
 import GHC.IO
 import GHC.Prim
 import GHC.Int
+import GHC.Float
 import GHC.Word
 import GHC.Ptr
 import Control.Monad
@@ -86,7 +87,7 @@ import Data.Proxy
 import Data.Sequence (Seq)
 import Data.Set (Set)
 import Data.Text (Text)
-import Foreign (Storable(..), withForeignPtr)
+import Foreign (withForeignPtr)
 import GHC.Base (unsafeChr, ord)
 import GHC.Exts (IsList(..))
 import GHC.Generics
@@ -97,7 +98,6 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Internal as B
 import qualified Data.ByteString.Lazy as L
 import qualified Data.ByteString.Short as S
-import qualified Data.ByteString.Short.Internal as S
 import qualified Data.Monoid as M
 import qualified Data.Text.Encoding as TE
 import qualified Data.Tree as T
@@ -290,24 +290,33 @@ unsafeGet64BE = Get $ \_ p s -> case peek64BE p of
   x -> (# p `plusAddr#` 8#, s, fromIntegral (W64# x) #)
 {-# INLINE unsafeGet64BE #-}
 
-reinterpretCast :: (Storable a, Storable b) => Ptr p -> a -> IO b
-reinterpretCast p x = do
-  poke (castPtr p) x
-  peek (castPtr p)
-{-# INLINE reinterpretCast #-}
+reinterpretWord64AsDouble :: Word64 -> Get s Double
+reinterpretWord64AsDouble (W64# x) = Get $ \e p s ->
+  case writeWord64OffAddr# (geReinterpretCast e) 0# x realWorld# of
+    w -> case readDoubleOffAddr# (geReinterpretCast e) 0# w of
+      (# _, d #) -> (# p, s, D# d #)
+{-# INLINE reinterpretWord64AsDouble #-}
 
-reinterpretCastPut :: (Storable a, Storable b) => a -> Put s b
-reinterpretCastPut x = Put $ \e p s -> fixup $ Tup p s <$!> reinterpretCast (Ptr (peReinterpretCast e)) x
-{-# INLINE reinterpretCastPut #-}
+reinterpretWord32AsFloat :: Word32 -> Get s Float
+reinterpretWord32AsFloat (W32# x) = Get $ \e p s ->
+  case writeWord32OffAddr# (geReinterpretCast e) 0# x realWorld# of
+    w -> case readFloatOffAddr# (geReinterpretCast e) 0# w of
+      (# _, d #) -> (# p, s, F# d #)
+{-# INLINE reinterpretWord32AsFloat #-}
 
- -- TODO remove
-fixup' :: IO (Tup a b) -> (# Addr#, a, b #)
-fixup' x = case unsafePerformIO x of
-  Tup a b c -> (# a, b, c #)
+reinterpretDoubleAsWord64 :: Double -> Put s Word64
+reinterpretDoubleAsWord64 (D# x) = Put $ \e p s w ->
+  case writeDoubleOffAddr# (peReinterpretCast e) 0# x w of
+    w' -> case readWord64OffAddr# (peReinterpretCast e) 0# w' of
+      (# w'', d #) -> (# w'', p, s, W64# d #)
+{-# INLINE reinterpretDoubleAsWord64 #-}
 
-reinterpretCastGet :: (Storable a, Storable b) => a -> Get s b
-reinterpretCastGet x = Get $ \e p s -> fixup' $ Tup p s <$!> reinterpretCast (Ptr (geReinterpretCast e)) x
-{-# INLINE reinterpretCastGet #-}
+reinterpretFloatAsWord32 :: Float -> Put s Word32
+reinterpretFloatAsWord32 (F# x) = Put $ \e p s w ->
+  case writeFloatOffAddr# (peReinterpretCast e) 0# x w of
+    w' -> case readWord32OffAddr# (peReinterpretCast e) 0# w' of
+      (# w'', d #) -> (# w'', p, s, W32# d #)
+{-# INLINE reinterpretFloatAsWord32 #-}
 
 -- The () type need never be written to disk: values of singleton type
 -- can be reconstructed from the type alone
@@ -473,15 +482,15 @@ instance Persist s Int64 where
   {-# INLINE get #-}
 
 instance Persist s (LittleEndian Double) where
-  put x = reinterpretCastPut (unLE x) >>= putLE @s @Word64
+  put x = reinterpretDoubleAsWord64 (unLE x) >>= putLE
   {-# INLINE put #-}
-  get = getLE @s @Word64 >>= fmap LittleEndian . reinterpretCastGet
+  get = getLE >>= fmap LittleEndian . reinterpretWord64AsDouble
   {-# INLINE get #-}
 
 instance Persist s (BigEndian Double) where
-  put x = reinterpretCastPut (unBE x) >>= putBE @s @Word64
+  put x = reinterpretDoubleAsWord64 (unBE x) >>= putBE
   {-# INLINE put #-}
-  get = getBE @s @Word64 >>= fmap BigEndian . reinterpretCastGet
+  get = getBE >>= fmap BigEndian . reinterpretWord64AsDouble
   {-# INLINE get #-}
 
 instance Persist s Double where
@@ -491,15 +500,15 @@ instance Persist s Double where
   {-# INLINE get #-}
 
 instance Persist s (LittleEndian Float) where
-  put x = reinterpretCastPut (unLE x) >>= putLE @s @Word32
+  put x = reinterpretFloatAsWord32 (unLE x) >>= putLE
   {-# INLINE put #-}
-  get = getLE @s @Word32 >>= fmap LittleEndian . reinterpretCastGet
+  get = getLE >>= fmap LittleEndian . reinterpretWord32AsFloat
   {-# INLINE get #-}
 
 instance Persist s (BigEndian Float) where
-  put x = reinterpretCastPut (unBE x) >>= putBE @s @Word32
+  put x = reinterpretFloatAsWord32 (unBE x) >>= putBE
   {-# INLINE put #-}
-  get = getBE @s @Word32 >>= fmap BigEndian . reinterpretCastGet
+  get = getBE >>= fmap BigEndian . reinterpretWord32AsFloat
   {-# INLINE get #-}
 
 instance Persist s Float where
@@ -682,14 +691,8 @@ instance Persist s L.ByteString where
   get = L.fromStrict <$!> get
 
 instance Persist s S.ShortByteString where
-  put b = do
-    let !n@(I# n') = S.length b
-    put n
-    grow n
-    Put $ \_ p s -> fixup $ do
-      S.copyToPtr b 0 (Ptr p) n
-      pure $! Tup (p `plusAddr#` n') s ()
-
+  -- TODO optimize
+  put = put . S.fromShort
   get = S.toShort <$!> get
 
 instance (Ord a, Persist s a) => Persist s (Set a) where
@@ -872,9 +875,10 @@ runPut s = snd . evalPut s
 putByteString :: ByteString -> Put s ()
 putByteString !(B.PS b o n@(I# n')) = do
   grow n
-  Put $ \_ p s -> fixup $ do
-    withForeignPtr b $ \q -> B.memcpy (Ptr p) (q `plusPtr` o) n
-    pure $! Tup (p `plusAddr#` n') s ()
+  Put $ \_ p s w ->
+    let IO m = withForeignPtr b $ \q -> B.memcpy (Ptr p) (q `plusPtr` o) n
+    in case m w of
+      (# w', _ #) -> (# w', p `plusAddr#` n', s, () #)
 {-# INLINE putByteString #-}
 
 modifyStateGet :: (GetState s -> GetState s) -> Get s ()
