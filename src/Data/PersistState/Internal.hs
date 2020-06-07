@@ -18,11 +18,13 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE UnboxedTuples #-}
 {-# LANGUAGE UndecidableInstances #-}
 
 module Data.PersistState.Internal (
-    Tup(..)
-    , ptrToAddr
+    ptrToAddr
+    , fixup
+    , Tup(..)
 
     -- * The Get type
     , Get(..)
@@ -48,6 +50,7 @@ module Data.PersistState.Internal (
 
 import GHC.Prim
 import GHC.Ptr
+import GHC.Int
 import Control.Exception
 import Control.Monad
 import Data.ByteString (ByteString)
@@ -63,9 +66,15 @@ import qualified Data.ByteString.Internal as B
 
 #include "MachDeps.h"
 
+type family GetState s
+
+-- TODO remove
 data Tup b c = Tup Addr# !b !c
 
-type family GetState s
+-- TODO remove
+fixup :: IO (Tup a b) -> (# Addr#, a, b #)
+fixup x = case unsafePerformIO x of
+  Tup a b c -> (# a, b, c #)
 
 -- TODO remove
 ptrToAddr :: Ptr a -> Addr#
@@ -79,23 +88,23 @@ data GetEnv s = GetEnv
   }
 
 newtype Get s a = Get
-  { unGet :: GetEnv s -> Addr# -> GetState s -> IO (Tup (GetState s) a)
+  { unGet :: GetEnv s -> Addr# -> GetState s -> (# Addr#, GetState s, a #)
   }
 
 instance Functor (Get s) where
-  fmap f m = Get $ \e p s -> do
-    Tup p' s' x <- unGet m e p s
-    pure $! Tup p' s' (f x)
+  fmap f m = Get $ \e p s -> case unGet m e p s of
+    (# p', s', x #) -> (# p', s', f x #)
   {-# INLINE fmap #-}
 
 instance Applicative (Get s) where
-  pure a = Get $ \_ p s -> pure $! Tup p s a
+  pure a = Get $ \_ p s -> (# p, s, a #)
   {-# INLINE pure #-}
 
-  f <*> a = Get $ \e p s -> do
-    Tup p' s' f' <- unGet f e p s
-    Tup p'' s'' a'' <- unGet a e p' s'
-    pure $! Tup p'' s'' (f' a'')
+  f <*> a = Get $ \e p s ->
+    case unGet f e p s of
+      (# p', s', f' #) ->
+        case unGet a e p' s' of
+          (# p'', s'', a'' #) -> (# p'', s'', f' a'' #)
   {-# INLINE (<*>) #-}
 
   m1 *> m2 = do
@@ -104,9 +113,8 @@ instance Applicative (Get s) where
   {-# INLINE (*>) #-}
 
 instance Monad (Get s) where
-  m >>= f = Get $ \e p s -> do
-    Tup p' s' x <- unGet m e p s
-    unGet (f x) e p' s'
+  m >>= f = Get $ \e p s -> case unGet m e p s of
+    (# p', s', x #) -> unGet (f x) e p' s'
   {-# INLINE (>>=) #-}
 
 #if !MIN_VERSION_base(4,11,0)
@@ -128,36 +136,36 @@ instance Fail.MonadFail (Get s) where
   {-# INLINE fail #-}
 
 offset :: Get s Int
-offset = Get $ \e p s -> pure $! Tup p s (Ptr p `minusPtr` Ptr (geBegin e))
+offset = Get $ \e p s -> (# p, s, I# (p `minusAddr#` geBegin e) #)
 {-# INLINE offset #-}
 
 failGet :: (Int -> String -> GetException) -> String -> Get s a
 failGet ctor msg = do
   off <- offset
-  Get $ \_ _ _ -> throwIO (ctor off msg)
+  Get $ \_ _ _ -> raise# (toException (ctor off msg))
 
 stateGet :: Get s (GetState s)
-stateGet = Get $ \_ p s -> pure $! Tup p s s
+stateGet = Get $ \_ p s -> (# p, s, s #)
 {-# INLINE stateGet #-}
 
 statePut :: Put s (PutState s)
-statePut = Put $ \_ p s -> pure $! Tup p s s
+statePut = Put $ \_ p s -> (# p, s, s #)
 {-# INLINE statePut #-}
 
 setStateGet :: GetState s -> Get s ()
-setStateGet s = Get $ \_ p _ -> pure $! Tup p s ()
+setStateGet s = Get $ \_ p _ -> (# p, s, () #)
 {-# INLINE setStateGet #-}
 
 setStatePut :: PutState s -> Put s ()
-setStatePut s = Put $ \_ p _ -> pure $! Tup p s ()
+setStatePut s = Put $ \_ p _ -> (# p, s, () #)
 {-# INLINE setStatePut #-}
 
 runGetIO :: Get s a -> GetState s -> ByteString -> IO a
 runGetIO m g s = run
   where run = withForeignPtr buf $ \p -> allocaBytes 8 $ \t -> do
           let env = GetEnv { geBuf = buf, geBegin = ptrToAddr p, geEnd = ptrToAddr (p `plusPtr` (pos + len)), geTmp = ptrToAddr t }
-          Tup _ _ r <- unGet m env (ptrToAddr (p `plusPtr` pos)) g
-          pure r
+          case unGet m env (ptrToAddr (p `plusPtr` pos)) g of
+            (# _, _, r #) -> pure r
         (B.PS buf pos len) = s
 
 -- | Run the Get monad applies a 'get'-based parser on the input ByteString
@@ -180,22 +188,20 @@ data PutEnv s = PutEnv
   }
 
 newtype Put s a = Put
-  { unPut :: PutEnv s -> Addr# -> PutState s -> IO (Tup (PutState s) a) }
+  { unPut :: PutEnv s -> Addr# -> PutState s -> (# Addr#, PutState s,  a #) }
 
 instance Functor (Put s) where
-  fmap f m = Put $ \e p s -> do
-    Tup p' s' x <- unPut m e p s
-    pure $! Tup p' s' (f x)
+  fmap f m = Put $ \e p s -> case unPut m e p s of
+    (# p', s', x #) -> (# p', s', f x #)
   {-# INLINE fmap #-}
 
 instance Applicative (Put s) where
-  pure a = Put $ \_ p s -> pure $! Tup p s a
+  pure a = Put $ \_ p s -> (# p, s, a #)
   {-# INLINE pure #-}
 
-  f <*> a = Put $ \e p s -> do
-    Tup p' s' f' <- unPut f e p s
-    Tup p'' s'' a' <- unPut a e p' s'
-    pure $! Tup p'' s'' (f' a')
+  f <*> a = Put $ \e p s -> case unPut f e p s of
+    (# p', s', f' #) -> case unPut a e p' s' of
+      (# p'', s'', a' #) -> (# p'', s'', f' a' #)
   {-# INLINE (<*>) #-}
 
   m1 *> m2 = do
@@ -204,9 +210,8 @@ instance Applicative (Put s) where
   {-# INLINE (*>) #-}
 
 instance Monad (Put s) where
-  m >>= f = Put $ \e p s -> do
-    Tup p' s' x <- unPut m e p s
-    unPut (f x) e p' s'
+  m >>= f = Put $ \e p s -> case unPut m e p s of
+    (# p', s', x #) -> unPut (f x) e p' s'
   {-# INLINE (>>=) #-}
 
 minChunkSize :: Int
@@ -224,7 +229,7 @@ newChunk size = do
 grow :: Int -> Put s ()
 grow n
   | n < 0 = error "grow: negative length"
-  | otherwise = Put $ \e p s -> do
+  | otherwise = Put $ \e p s -> fixup $ do
       end <- readIORef (peEnd e)
       if end `minusPtr` (Ptr p) >= n then
         pure $! Tup p s ()
@@ -260,7 +265,8 @@ evalPutIO p ps = do
   chks <- newIORef (k:|[])
   end <- newIORef (Ptr (chkEnd k))
   Tup p' _ps' r <- allocaBytes 8 $ \t ->
-    unPut p PutEnv { peChks = chks, peEnd = end, peTmp = ptrToAddr t } (chkBegin k) ps
+    pure $ case unPut p PutEnv { peChks = chks, peEnd = end, peTmp = ptrToAddr t } (chkBegin k) ps of
+             (# p', ps', r #) -> Tup p' ps' r
   cs <- readIORef chks
   s <- case cs of
     (x:|xs) -> catChunks $ x { chkEnd = p' } : xs

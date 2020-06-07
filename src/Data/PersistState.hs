@@ -20,6 +20,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE UnboxedTuples #-}
 
 module Data.PersistState (
 
@@ -68,6 +69,7 @@ module Data.PersistState (
 ) where
 
 import GHC.Prim
+import GHC.Int
 import GHC.Ptr
 import Control.Monad
 import Data.Bits
@@ -130,6 +132,9 @@ poke64BE :: Addr# -> Word64 -> IO ()
 {-# INLINE poke16BE #-}
 {-# INLINE poke32BE #-}
 {-# INLINE poke64BE #-}
+
+peek8 :: Addr# -> IO Word8
+{-# INLINE peek8 #-}
 
 peek16LE :: Addr# -> IO Word16
 peek32LE :: Addr# -> IO Word32
@@ -329,6 +334,8 @@ poke16BE p = poke (Ptr p) . toBE16
 poke32BE p = poke (Ptr p) . toBE32
 poke64BE p = poke (Ptr p) . toBE64
 
+peek8 p = peek (Ptr p)
+
 peek16LE p = fromLE16 <$!> peek (Ptr p)
 peek32LE p = fromLE32 <$!> peek (Ptr p)
 peek64LE p = fromLE64 <$!> peek (Ptr p)
@@ -382,85 +389,85 @@ getBE = unBE <$!> get
 {-# INLINE getBE #-}
 
 unsafePutByte :: Integral a => a -> Put s ()
-unsafePutByte x = Put $ \_ p s -> do
+unsafePutByte x = Put $ \_ p s -> fixup $ do
   poke @Word8 (Ptr p) $ fromIntegral x
   pure $! Tup (p `plusAddr#` 1#) s ()
 {-# INLINE unsafePutByte #-}
 
 unsafePut16LE :: Integral a => a -> Put s ()
-unsafePut16LE x = Put $ \_ p s -> do
+unsafePut16LE x = Put $ \_ p s -> fixup $ do
   poke16LE p $ fromIntegral x
   pure $! Tup (p `plusAddr#` 2#) s ()
 {-# INLINE unsafePut16LE #-}
 
 unsafePut32LE :: Integral a => a -> Put s ()
-unsafePut32LE x = Put $ \_ p s -> do
+unsafePut32LE x = Put $ \_ p s -> fixup $ do
   poke32LE p $ fromIntegral x
   pure $! Tup (p `plusAddr#` 4#) s ()
 {-# INLINE unsafePut32LE #-}
 
 unsafePut64LE :: Integral a => a -> Put s ()
-unsafePut64LE x = Put $ \_ p s -> do
+unsafePut64LE x = Put $ \_ p s -> fixup $ do
   poke64LE p $ fromIntegral x
   pure $! Tup (p `plusAddr#` 8#) s ()
 {-# INLINE unsafePut64LE #-}
 
 unsafePut16BE :: Integral a => a -> Put s ()
-unsafePut16BE x = Put $ \_ p s -> do
+unsafePut16BE x = Put $ \_ p s -> fixup $ do
   poke16BE p $ fromIntegral x
   pure $! Tup (p `plusAddr#` 2#) s ()
 {-# INLINE unsafePut16BE #-}
 
 unsafePut32BE :: Integral a => a -> Put s ()
-unsafePut32BE x = Put $ \_ p s -> do
+unsafePut32BE x = Put $ \_ p s -> fixup $ do
   poke32BE p $ fromIntegral x
   pure $! Tup (p `plusAddr#` 4#) s ()
 {-# INLINE unsafePut32BE #-}
 
 unsafePut64BE :: Integral a => a -> Put s ()
-unsafePut64BE x = Put $ \_ p s -> do
+unsafePut64BE x = Put $ \_ p s -> fixup $ do
   poke64BE p $ fromIntegral x
   pure $! Tup (p `plusAddr#` 8#) s ()
 {-# INLINE unsafePut64BE #-}
 
-unsafeGetByte :: Num a => Get s a
-unsafeGetByte = Get $ \_ p s -> do
-  x <- peek @Word8 (Ptr p)
+unsafeGet8 :: Num a => Get s a
+unsafeGet8 = Get $ \_ p s -> fixup $ do
+  x <- peek8 p
   pure $! Tup (p `plusAddr#` 1#) s (fromIntegral x)
-{-# INLINE unsafeGetByte #-}
+{-# INLINE unsafeGet8 #-}
 
 unsafeGet16LE :: Num a => Get s a
-unsafeGet16LE = Get $ \_ p s -> do
+unsafeGet16LE = Get $ \_ p s -> fixup $ do
   x <- peek16LE p
   pure $! Tup (p `plusAddr#` 2#) s (fromIntegral x)
 {-# INLINE unsafeGet16LE #-}
 
 unsafeGet32LE :: Num a => Get s a
-unsafeGet32LE = Get $ \_ p s -> do
+unsafeGet32LE = Get $ \_ p s -> fixup $ do
   x <- peek32LE p
   pure $! Tup (p `plusAddr#` 4#) s (fromIntegral x)
 {-# INLINE unsafeGet32LE #-}
 
 unsafeGet64LE :: Num a => Get s a
-unsafeGet64LE = Get $ \_ p s -> do
+unsafeGet64LE = Get $ \_ p s -> fixup $ do
   x <- peek64LE p
   pure $! Tup (p `plusAddr#` 8#) s (fromIntegral x)
 {-# INLINE unsafeGet64LE #-}
 
 unsafeGet16BE :: Num a => Get s a
-unsafeGet16BE = Get $ \_ p s -> do
+unsafeGet16BE = Get $ \_ p s -> fixup $ do
   x <- peek16BE p
   pure $! Tup (p `plusAddr#` 2#) s (fromIntegral x)
 {-# INLINE unsafeGet16BE #-}
 
 unsafeGet32BE :: Num a => Get s a
-unsafeGet32BE = Get $ \_ p s -> do
+unsafeGet32BE = Get $ \_ p s -> fixup $ do
   x <- peek32BE p
   pure $! Tup (p `plusAddr#` 4#) s (fromIntegral x)
 {-# INLINE unsafeGet32BE #-}
 
 unsafeGet64BE :: Num a => Get s a
-unsafeGet64BE = Get $ \_ p s -> do
+unsafeGet64BE = Get $ \_ p s -> fixup $ do
   x <- peek64BE p
   pure $! Tup (p `plusAddr#` 8#) s (fromIntegral x)
 {-# INLINE unsafeGet64BE #-}
@@ -472,11 +479,11 @@ reinterpretCast p x = do
 {-# INLINE reinterpretCast #-}
 
 reinterpretCastPut :: (Storable a, Storable b) => a -> Put s b
-reinterpretCastPut x = Put $ \e p s -> Tup p s <$!> reinterpretCast (Ptr (peTmp e)) x
+reinterpretCastPut x = Put $ \e p s -> fixup $ Tup p s <$!> reinterpretCast (Ptr (peTmp e)) x
 {-# INLINE reinterpretCastPut #-}
 
 reinterpretCastGet :: (Storable a, Storable b) => a -> Get s b
-reinterpretCastGet x = Get $ \e p s -> Tup p s <$!> reinterpretCast (Ptr (geTmp e)) x
+reinterpretCastGet x = Get $ \e p s -> fixup $ Tup p s <$!> reinterpretCast (Ptr (geTmp e)) x
 {-# INLINE reinterpretCastGet #-}
 
 -- The () type need never be written to disk: values of singleton type
@@ -495,7 +502,7 @@ instance Persist s Word8 where
 
   get = do
     ensure 1
-    unsafeGetByte
+    unsafeGet8
   {-# INLINE get #-}
 
 instance Persist s (LittleEndian Word16) where
@@ -856,7 +863,7 @@ instance Persist s S.ShortByteString where
     let n = S.length b
     put n
     grow n
-    Put $ \_ p s -> do
+    Put $ \_ p s -> fixup $ do
       S.copyToPtr b 0 (Ptr p) n
       pure $! Tup (ptrToAddr (Ptr p `plusPtr` n)) s ()
 
@@ -1003,15 +1010,15 @@ ensure n
 
 -- | Skip ahead @n@ bytes. Fails if fewer than @n@ bytes are available.
 skip :: Int -> Get s ()
-skip n = do
+skip n@(I# n') = do
   ensure n
-  Get $ \_ p s -> pure $! Tup (ptrToAddr (Ptr p `plusPtr` n)) s ()
+  Get $ \_ p s -> (# p `plusAddr#` n', s, () #)
 {-# INLINE skip #-}
 
 -- | Get the number of remaining unparsed bytes.  Useful for checking whether
 -- all input has been consumed.
 remaining :: Get s Int
-remaining = Get $ \e p s -> pure $! Tup p s (Ptr (geEnd e) `minusPtr` Ptr p)
+remaining = Get $ \e p s -> (# p, s, I# (geEnd e `minusAddr#` p) #)
 {-# INLINE remaining #-}
 
 -- -- | Succeed if end of input reached.
@@ -1023,9 +1030,9 @@ eof = do
 
 -- | Pull @n@ bytes from the input, as a strict ByteString.
 getBytes :: Int -> Get s ByteString
-getBytes n = do
+getBytes n@(I# n') = do
   ensure n
-  Get $ \e p s -> pure $! Tup (ptrToAddr (Ptr p `plusPtr` n)) s (B.PS (geBuf e) (Ptr p `minusPtr` Ptr (geBegin e)) n)
+  Get $ \e p s -> (# p `plusAddr#` n', s, B.PS (geBuf e) (I# (p `minusAddr#` geBegin e)) n #)
 {-# INLINE getBytes #-}
 
 -- | An efficient 'get' method for strict ByteStrings. Fails if fewer
@@ -1042,7 +1049,7 @@ runPut s = snd . evalPut s
 putByteString :: ByteString -> Put s ()
 putByteString (B.PS b o n) = do
   grow n
-  Put $ \_ p s -> do
+  Put $ \_ p s -> fixup $ do
     withForeignPtr b $ \q -> B.memcpy (Ptr p) (q `plusPtr` o) n
     pure $! Tup (ptrToAddr (Ptr p `plusPtr` n)) s ()
 {-# INLINE putByteString #-}
