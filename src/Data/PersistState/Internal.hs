@@ -48,7 +48,7 @@ module Data.PersistState.Internal (
 import GHC.Prim
 import GHC.Ptr
 import GHC.IO
-import GHC.Exts
+import GHC.Int
 import Control.Exception
 import Control.Monad
 import Data.ByteString (ByteString)
@@ -219,12 +219,12 @@ grow :: Int -> Put s ()
 grow !n@(I# n')
   | n < 0 = error "grow: negative length"
   | otherwise = Put $ \e p q s w ->
-      if isTrue# (q `minusAddr#` p >=# n') then
-        (# w, p, q, s, () #)
-      else
-        let IO m = addChunk e p n
-        in case m w of
-          (# w', k #) -> (# w', chkBegin k, chkEnd k, s, () #)
+      case q `minusAddr#` p >=# n' of
+        1# -> (# w, p, q, s, () #)
+        _ ->
+          let IO m = addChunk e p n
+          in case m w of
+            (# w', k #) -> (# w', chkBegin k, chkEnd k, s, () #)
 {-# INLINE grow #-}
 
 chunksLength :: [Chunk] -> Int
