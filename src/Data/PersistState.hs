@@ -359,10 +359,37 @@ instance Persist s (BigEndian Word16) where
     BigEndian <$!> unsafeGet16BE
   {-# INLINE get #-}
 
+putLEB128 :: (Bits a, Integral a) => Int -> a -> Put s ()
+putLEB128 n x = do grow n; go n x
+  where go !1 !b = unsafePut8 b
+        go !i !b = do
+          let !b' = b `unsafeShiftR` 7
+          if b' == 0 then
+            unsafePut8 b
+          else do
+            unsafePut8 ((b .&. 0x7F) .|. 0x80)
+            go (i - 1) b'
+{-# INLINE putLEB128 #-}
+
+getLEB128 :: forall a s. Integral a => Int -> Get s a
+getLEB128 !n = fromIntegral @Word64 @a <$!> go n
+  where go !1 = do
+          ensure 1
+          unsafeGet8
+        go !i = do
+          ensure 1
+          b <- unsafeGet8
+          if b .&. 0x80 == 0 then
+            pure b
+          else do
+            h <- go (i - 1)
+            pure $ (h `unsafeShiftL` 7) .|. (b .&. 0x7F)
+{-# INLINE getLEB128 #-}
+
 instance Persist s Word16 where
-  put = putLE
+  put = putLEB128 3
   {-# INLINE put #-}
-  get = getLE
+  get = getLEB128 3
   {-# INLINE get #-}
 
 instance Persist s (LittleEndian Word32) where
@@ -388,9 +415,9 @@ instance Persist s (BigEndian Word32) where
   {-# INLINE get #-}
 
 instance Persist s Word32 where
-  put = putLE
+  put = putLEB128 5
   {-# INLINE put #-}
-  get = getLE
+  get = getLEB128 5
   {-# INLINE get #-}
 
 instance Persist s (LittleEndian Word64) where
@@ -416,9 +443,9 @@ instance Persist s (BigEndian Word64) where
   {-# INLINE get #-}
 
 instance Persist s Word64 where
-  put = putLE
+  put = putLEB128 10
   {-# INLINE put #-}
-  get = getLE
+  get = getLEB128 10
   {-# INLINE get #-}
 
 instance Persist s Int8 where
@@ -440,9 +467,9 @@ instance Persist s (BigEndian Int16) where
   {-# INLINE get #-}
 
 instance Persist s Int16 where
-  put = putLE
+  put = put . fromIntegral @_ @Word16
   {-# INLINE put #-}
-  get = getLE
+  get = fromIntegral @Word16 <$!> get
   {-# INLINE get #-}
 
 instance Persist s (LittleEndian Int32) where
@@ -458,9 +485,9 @@ instance Persist s (BigEndian Int32) where
   {-# INLINE get #-}
 
 instance Persist s Int32 where
-  put = putLE
+  put = put . fromIntegral @_ @Word32
   {-# INLINE put #-}
-  get = getLE
+  get = fromIntegral @Word32 <$!> get
   {-# INLINE get #-}
 
 instance Persist s (LittleEndian Int64) where
@@ -476,9 +503,9 @@ instance Persist s (BigEndian Int64) where
   {-# INLINE get #-}
 
 instance Persist s Int64 where
-  put = putLE
+  put = put . fromIntegral @_ @Word64
   {-# INLINE put #-}
-  get = getLE
+  get = fromIntegral @Word64 <$!> get
   {-# INLINE get #-}
 
 instance Persist s (LittleEndian Double) where
@@ -530,9 +557,9 @@ instance Persist s (BigEndian Word) where
   {-# INLINE get #-}
 
 instance Persist s Word where
-  put = putLE
+  put = put . fromIntegral @_ @Word64
   {-# INLINE put #-}
-  get = getLE
+  get = fromIntegral @Word64 <$!> get
   {-# INLINE get #-}
 
 instance Persist s (LittleEndian Int) where
@@ -548,9 +575,9 @@ instance Persist s (BigEndian Int) where
   {-# INLINE get #-}
 
 instance Persist s Int where
-  put = putLE
+  put = put . fromIntegral @_ @Int64
   {-# INLINE put #-}
-  get = getLE
+  get = fromIntegral @Int64 <$!> get
   {-# INLINE get #-}
 
 instance Persist s Integer where
