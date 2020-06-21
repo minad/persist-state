@@ -1,5 +1,5 @@
 name:                   persist-state
-version:                0.1.1.6
+version:                0.2.0.0
 license:                BSD3
 license-file:           LICENSE
 author:                 Daniel Mendler <mail@daniel-mendler.de>,
@@ -14,12 +14,12 @@ category:               Data, Parsing
 stability:              provisional
 build-type:             Simple
 cabal-version:          >= 1.10
-synopsis:               Minimal serialization library with focus on performance
+synopsis:               Serialization library with state and leb128 encoding
 homepage:               https://github.com/minad/persist-state
 tested-with:            GHC == 8.4.4, GHC == 8.6.4
 
 description:
-  A binary serialization library with focus on performance similar to store and cereal
+  A binary serialization library with support for state and leb128 encoding
 
 source-repository head
   type:     git
